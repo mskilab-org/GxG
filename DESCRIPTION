@@ -1,0 +1,30 @@
+Package: GxG
+Title: GxG: Genomic matrices and pairwise genomic features based on GenomicRanges and data.table
+Version: 0.1
+Authors@R:
+	c(person("Marcin", "Imielinski", email = "mai9037@med.cornell.edu", role = c("aut", "cre"),
+  ))
+Description:
+  GenomicRanges-based classes for representing, querying, and manipulating matrices of genomic data (ie a map of pairs of genomic coordinates to a numeric value).  Applications include visualization and analysis of Hi-C contact maps, barcode overlap in 10X, microhomology heatmaps, pairwise LD, and epistasis. 
+Remotes: 
+  github::mskilab/gUtils,
+  github::mskilab/gTrack
+Depends:
+    R (>= 3.3.0),
+    data.table (>= 1.11),
+    gTrack,
+    gUtils,     
+    reshape2 (>= 0.8),
+    GenomicRanges (>= 1.32),
+Imports:
+    methods,
+    R6,
+    rtracklayer(>= 1.38),
+    RCurl,
+    stringr (>= 1.3)
+Suggests: 
+  testthat (>= 2.0)
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 6.1.1
