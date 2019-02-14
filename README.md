@@ -11,15 +11,14 @@
   
 ## Install
 
-1. Install R-3.5
+1. Install [`R-3.5`](https://www.r-project.org/)
 
-2. Install devtools
+2. Install `devtools`
 
 ```{r}
 install.packages('devtools')
-install.packages('testthat')
 ```
-2. Install gGnome and dependent packages
+2. Install `gGnome` and dependent packages
 
 ```{r}
 ## allows dependencies that throw warnings to install
