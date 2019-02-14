@@ -37,7 +37,9 @@ devtools::install_github('mskilab/GxG)
 Documentation 
 ------------
 
-[GxG Tutorial (coming soon!)](http://mskilab.com/GxG/tutorial.html)
+[GxG Tutorial)](http://mskilab.com/GxG/tutorial.html)
+
+[![alttext](https://github.com/mskilab/gGnome/raw/master/docs/gGnome.png)](http://mskilab.com/GxG/tutorial.html))
 
 <!---
 [GxG Developer Reference](docs/reference.md)

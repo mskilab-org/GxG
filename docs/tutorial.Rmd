@@ -59,6 +59,7 @@ As much as possible, we have tried to recreate the "look and feel" of standard R
 
 **GxG** is currently in alpha release and is a manuscript in preparation.  If you use **GxG** in your work, please contact us so that we can update you when the citation becomes available. 
 
+
 ## Key classes
 
 The key classes in **GxG** comprise the following: the `gPair` (a 2D genomic feature consisting of an interval pair
@@ -79,6 +80,9 @@ $$ E(X_{ij}) = g^{-1}(O_{ij} + \alpha_0 + \sum_{k = 1}^{m} (\alpha_{k}u_i^k + \b
 
 
 where $g$ is the link function of a GLM (e.g. $ln$) modeling each $X_{ij}$ as drawn from some exponential family distribution (e.g. Poisson) whose expectation $E(X_{ij})$ is determined by the linear term on the right side of the above expression.  Here, $u^k_i$ is the $i$th component of the $k$th univariate vector $u^k$ (e.g. the GC  content in interval $i$), and $B^k_{ij}$ is the $ij$ entry in the $k$th bivariate matrix $B^k$ (e.g. the log distance between intervals $i$ and $j$).  The Greek symbols ($\alpha_k, \beta_k, \gamma_k, \eta_k$) are the coefficients that are fit to the data through maximum likelihood estimation.
+`
+
+
 
 # The Basics
 
@@ -623,7 +627,9 @@ Transform again to get Benjamini Hochberg FDR.
 gmbs.fdr = -gmbs.sig$transform(p.adjust, method = 'BH')$transform(log10)
 ```
 
-Using these results, we can plot our "truth" vs background covariate vs simulated data vs $-log_{10}(FDR)$.
+Using these results, we can plot our "truth" vs background covariate vs
+simulated data vs $-log_{10}(FDR)$.
+
 ```{r warning=FALSE, fig.height=15}
 plot(c(gm$gtrack('truth'), gmbg$gtrack('bg', clim = c(0,2)), gmbs$gtrack('data'), gmbs.fdr$gtrack('-log_10 FDR', clim = c(0,5))), win)
 ```
@@ -638,9 +644,10 @@ clu = (gmbs.fdr>1)$clusters()
 Clusters are numbered according to decreasing size / cardinality.
 We will plot a couple of these along with the data
 and see that they correspond to the stripes that we used to
-generate this simulated data
+generate this simulated data.
 
-```{r warning=FALSE, fig.height=10}
+
+```{r warning=FALSE, fig.height=5}
 clu1 = clu[cluster == 1]
 clu2 = clu[cluster == 2]
 
@@ -661,7 +668,7 @@ This can be done inside **GxG** to build contact maps de novo from sequencing re
 Here are three windows of a structurally variant region in HCC1143, for which we have linked-read data. 
 
 ```{r warning=FALSE, fig.height=5}
-We define these windows based on our prior knowledge
+## define windows where we know (from prior knowledge) rearrangements are present
 wins = GRanges(c("chr21:17195919-17295919", "chr21:17995273-18101884", "chr21:19308495-19408495"))
 
 ## The relevant tumor and normal bam slices are bundled with the package
@@ -767,6 +774,10 @@ The coordinates of the output are determined by the names of the input sequences
 is provided as a `GRanges` with metadata field `$seq`, then the results will be returned over these `GRanges`.
 
 ```{r warning=FALSE, fig.height=20}
+## Bioconductor string libraries
+library(Biostrings)
+library(BSgenome)
+
 ## allows us to read in 2bit files
 library(rtracklayer)
 
@@ -838,5 +849,5 @@ wins$seq = seq
 ## this gives the identical plot as above, except now the coordinates
 ## are "lifted" onto the reference coordinates
 gm = homeology(wins, stride = 5, pad = 20)
-plot(gm$gt, gmc$footprint)
+
 ```
