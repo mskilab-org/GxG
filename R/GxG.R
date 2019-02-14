@@ -265,7 +265,21 @@ gMatrix = R6::R6Class("gMatrix",
                          }
                          return(invisible(self))
                        },
-                      
+
+                      #' @name metaset
+                      #' @description
+                      #'
+                      #' sets metadata of gMatrix GRanges, either adding columns or changing
+                      #' existing values
+                      #' @param ... name value pairs where value is a vector / scalar that broadcasts to $gr
+                      #' @author Marcin Imielinski
+                      annotate = function(y)
+                      {
+                        gr.new = gr.val(self$gr, y, val = names(values(y)))
+                        do.call(self$metaset, as.list(values(gr.new)))
+                        return(invisible(self))
+                      },
+
                       #' @name clusters
                       #' @description
                       #'
