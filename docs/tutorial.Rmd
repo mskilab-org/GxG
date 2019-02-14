@@ -741,7 +741,7 @@ long range (>20kbp) linked read fragments).
 It is hard to see, however, there is a tiny but intense focus of pixels representing the
 read support for two of the three SVs found int he linked reads.  This is highly focal because the
 read pairs only provide very local contiguity information (<1kb).
-```{r warning=FALSE, fig.height=5}
+```{r warning=FALSE, fig.height=12}
 plot(c(tgm$gtrack('BX'), tgm2$gtrack('QNAME')), wins)
 ```
 

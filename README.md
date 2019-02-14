@@ -39,7 +39,9 @@ Documentation
 
 [GxG Tutorial)](http://mskilab.com/GxG/tutorial.html)
 
-[![alttext](https://github.com/mskilab/gGnome/raw/master/docs/gGnome.png)](http://mskilab.com/GxG/tutorial.html))
+[![alttext](http://mskilab.com/GxG/example.jpg)](http://mskilab.com/GxG/tutorial.html))
+[![alttext](http://mskilab.com/GxG/example2.jpg)](http://mskilab.com/GxG/tutorial.html))
+[![alttext](http://mskilab.com/GxG/example3.jpg)](http://mskilab.com/GxG/tutorial.html))
 
 <!---
 [GxG Developer Reference](docs/reference.md)
