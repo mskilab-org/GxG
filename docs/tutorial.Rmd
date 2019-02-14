@@ -1,0 +1,842 @@
+---
+title: "GxG Tutorial"
+author: "Marcin Imielinski Laboratory"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+---
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(collapse = TRUE)
+library(gTrack)
+library(bamUtils)
+library(data.table)
+library(rtracklayer)
+library(kableExtra)    
+library(magrittr)
+library(tidyr)
+```
+
+<style type="text/css">
+body, td {
+   font-size: 16px;
+}
+pre code, pre, code {
+  font-size: 15px;
+  color: rgb(20, 20, 20);
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+
+h1{
+  font-size: 22pt;
+  }
+
+h2{
+  font-size: 20pt;
+  }
+
+h3{
+  font-size: 16pt;
+  }
+
+
+</style>
+
+# Introduction
+
+The **GxG** package provides a flexible, queriable `R` interface to genome matrices (i.e. matrices of genomic ranges), such as those used to represent maps of 3D chromatin contacts or linked-read barcode sharing.  As we show below **GxG** can also be adapted to representing (as well as manipulating, refactoring, reshaping, analyzing) signals from other 2D/3D genomic data such as that from microhom(e)ology or representing intuitive 2D features such as binwise genomic distance.  
+
+**GxG** is written in the `R6` object oriented standard and built around a powerful `GenomicRanges`, `data.table`, and `igraph` backend, and thus supports agile interaction with gMatrices exceeding 100K bins and 100M "pixels".  Because **gGnome** classes are written in R6, their methods, variables, and "active bindings" are referenced using the `$` symbol.  This includes methods that  (similar to other object oriented languages) enable the object to be modified "in place".  Please see [here](https://cran.r-project.org/web/packages/R6/vignettes/Introduction.html) for more details about the `R6` standard.
+
+Our key interest in developing **GxG** is to develop a framework to analyze the sorts of matrices (`gMatrix`) that arise in the whole genome analysis of chromatin interactions and whole genome cancer structural variation. This includes implementing basic arithmetic operations (subtraction, multiplication) and transformations of matrices as well as a platform to implement more involved analyses (e.g. generalized linear models, clustering).  The key "pain point" that **GxG** relieves is the ability to "align", compare, visualize, and manipulate matrices that have been defined on different sets of coordinates (e.g. different bin sizes, uneven bin sizes) and to extract pairwise features (aka `gPair` objects) which can represent pixels or other higher level features (e.g. loops, stripes, loop anchors, and TADs).  The goal of `GxG` is to create a platform upon which custom statistical analyses of chromatin and structural variation can be written. 
+
+As much as possible, we have tried to recreate the "look and feel" of standard R matrices while leveraging `R6` methods and active bindings to provide additional capabilities.  For installation instructions, please visit the [GxG github page](https://github.com/mskilab/GxG). For background, it may help to have some familiarity with [`data.table`](https://cran.r-project.org/web/packages/data.table/vignettes/datatable-intro.html), [`GenomicRanges`](https://www.bioconductor.org/packages/3.7/bioc/vignettes/GenomicRanges/inst/doc/GenomicRangesIntroduction.pdf), and [`gUtils`](https://github.com/mskilab/gUtils)  packages.
+
+**GxG** is currently in alpha release and is a manuscript in preparation.  If you use **GxG** in your work, please contact us so that we can update you when the citation becomes available. 
+
+## Key classes
+
+The key classes in **GxG** comprise the following: the `gPair` (a 2D genomic feature consisting of an interval pair
+and metadata) and the `gMatrix` (a symmetric genome matrix with interval metadata and a value assigned to each interval pair).
+The `gPair` class is vectorized and can be subsettted using both integer indices and expressions on pair metadata.
+The `gMatrix` class consists of two key fields: `$gr` (a `GRanges` of non-overlapping intervals / bins, which don't have to be evenly spaced and don't have to covert the genome) and `$dat` (a `data.table` mapping bin pairs `$i` and `$j` to a `$value`).
+Both objects can be constructed from `GRanges` and `data.table` inputs, or imported from several standard chromatin
+formats, including `Juicer` `.hic` files (via the `straw` API) and HicPro `.matrix` files.  Both `gPair` and `gMatrix` objects
+can be visualized using the `gTrack` package.  Examples are shown below. 
+
+### GLMs on genomic matrices
+
+A very useful and basic analysis (shown in the examples below) of `gMatrix` objects is the generalized linear model (GLM).  A GLM be trained on a `gMatrix` using the `gglm` function and applied on new data via the `gpredict` function.  These models have a stereotypical formula, where by the value of every pixel / bin pair $ij$ is predicted as a linear function of the "univariate" features $u_i$ and $u_j$ (and their $ij$ interaction $u_iu_j$), "bivariate" features $b_ij$, and an optional "bivariate" offset.   Univariate features include any "1D track" that can be used to annotate a `GRanges`, e.g. GC content, replication timing, or discrete chromatin states.  Bivariate features are `2D tracks` represented as other `gMatrix` objects that might represent a 2D covariate, e.g. bin pair distance, sequence homology.
+
+More formally, given `gMatrix` $X \in \mathbb{R}^{n \times n}$ defined over $n$ intervals, a set of $m$ univariate (vector) covariates (referred to as $u^k \in \mathbb{R}^n, k \in 1,...,u$ and $p$ matrices of bivariates (each referred to as $B^k \in \mathbb{R}^{n \times n}, k \in 1,...p$), and a bivariate offset $O \in \mathbb{R}^{n \times n}$ we define linear models
+
+$$ E(X_{ij}) = g^{-1}(O_{ij} + \alpha_0 + \sum_{k = 1}^{m} (\alpha_{k}u_i^k + \beta_{k}u_j^k + \gamma_ku_i^ku_j^k) + \sum_{k = 1}^{p} \eta_kB^k_{ij}) $$
+
+
+where $g$ is the link function of a GLM (e.g. $ln$) modeling each $X_{ij}$ as drawn from some exponential family distribution (e.g. Poisson) whose expectation $E(X_{ij})$ is determined by the linear term on the right side of the above expression.  Here, $u^k_i$ is the $i$th component of the $k$th univariate vector $u^k$ (e.g. the GC  content in interval $i$), and $B^k_{ij}$ is the $ij$ entry in the $k$th bivariate matrix $B^k$ (e.g. the log distance between intervals $i$ and $j$).  The Greek symbols ($\alpha_k, \beta_k, \gamma_k, \eta_k$) are the coefficients that are fit to the data through maximum likelihood estimation.
+
+# The Basics
+
+## Import and basic manipulation
+
+The [`.hic`](https://github.com/aidenlab/juicer) format is a popular format to represent genome-wide contact maps.  We can instantiate `gMatrix` objects from `.hic` files via the conveneient [`straw` API](https://github.com/aidenlab/straw/wiki/R) provided by the Aiden lab. 
+
+```{r warning=FALSE}
+## read in straw data at 100kb (this is very sparse data
+## provided with the Juicer tutorial)
+hic.file = system.file('extdata', "test.hic", package = "GxG")
+
+## can load in specific chromosomes via character or numeric vector
+## and the other normalizations
+gm = straw(hic.file, 1:2, res = 5e4)
+gm = straw(hic.file, c(1:3, 'X'), norm = "NONE", res = 1e5)
+
+## we can use any GRanges as input to straw and use alternate norms
+## like KR and VC, though the default is NONE
+## (which are not provided with the small .hic matrix bundled with
+## the package but are available to most Juicer outputs
+gm = straw(hic.file, GRanges('1:1-250e6'), norm = 'NONE', res = 5e5)
+```
+
+We can plot `gMatrix` objects using `gTrack` using the `$gt` active binding. 
+
+```{r warning=FALSE, fig.height=7)
+## note that this demo .hic file is tiny (40MB) and so encodes a very sparse contact map
+plot(gm$gt, '1')
+```
+
+You can customize the colormap, colormap limits, and pick particular `GRanges` windows to plot using the `$gtrack` method.
+
+```{r warning=FALSE, fig.height=7}
+gt = gm$gtrack(colormap = c('white', 'green', 'blue'), clim = c(0, 50))
+plot(gt, GRanges('1:1-5e7'))
+```
+
+Each `gMatrix` has a `$gr` field (a `GRanges` of intervals / bins) and a `$dat` (`data.table` of values with fields `$i`, `$j`, and `$value`). 
+
+```{r warning=FALSE, fig.height=5}
+gm$gr
+```
+
+```{r warning=FALSE, fig.height=5}
+gm$dat
+```
+
+Since the `gMatrix` is by default sparse, `$fill` specifies the default value implicit in all non specified bin pairs (by default `$fill` is 0).  We can make the `gMatrix` full (i.e. explicitly fill out all `i,j` pairs with values) by setting the value `$fill` to `TRUE`.
+
+```{r warning=FALSE, fig.height=5}
+gm$fill
+
+## this will be empty
+gm$dat[value == 0, ]
+```
+
+```{r warning=FALSE, fig.height=5}
+## can make this matrix full
+gm$full = TRUE
+gm$dat[value == 0, ]
+```
+We can subset a gMatrix either using integer indices into the $gr GRanges
+a GRanges, or an expression on the `$gr` metadata (including seqnames, start, end)
+which produces an index or logical vector that broadcasts to the $gr field
+
+All contacts that connect with the first five ranges of gm$gr
+```{r warning=FALSE, fig.height=5}
+gm[1:5, ] 
+```
+
+All contacts that between the first 5 ranges of gm$gr and themselves
+```{r warning=FALSE, fig.height=5}
+gm[1:5, 1:5]
+```
+
+We can also use GRanges to query 
+e.g. all contacts connecting to the first 10 MBp of chromosome 1 
+```{r warning=FALSE, fig.height=5}
+gm[GRanges('1:1-1e7'), ]
+```
+
+All contacts connecting the first 10Mbp to themselves
+```{r warning=FALSE, fig.height=5}
+gm[GRanges('1:1-1e7'), GRanges('1:1-1e7')]
+```
+All contacts connecting the first 10Mbp of chr 1 and chr 2
+```{r warning=FALSE, fig.height=5}
+gm[GRanges('1:1-1e7'), GRanges('2:1-1e7')]
+```
+
+Using `drop = TRUE`syntax with a single index i will output a GRanges
+whose metadata field $value the "row" of values associated with i (aka "virtual 4C")
+
+```{r warning=FALSE, fig.height=5}
+gm[1, drop = TRUE]
+```
+
+### Aggregation, disjoining, and merging 
+
+Analysis of genomic matrices of different bin sizes requires "aligning" data to a common set of bins either through disjoining (splitting data) or aggregation (combining bins, aggregating their data e.g. through a sum).  One may also want to quickly compare the results of two matrices via their bins.
+
+A gMatrix can be rebinned by "disjoining" or "aggregation".
+
+```{r warning=FALSE, fig.height=5}
+## create 200kb bins around the footprint of gMatrix using gutils::gr.tile
+## around the $footprint field, which is the 
+new.ranges = gr.tile(gm$footprint, 2e5)
+```
+
+The `$disjoin` method will first disjoin the ranges around it's argument
+into a non-overlapping set of
+intervals that contains all the endpoints of the input (see GRanges definition of `disjoin`). It then recasts the $dat field around the new bin set.
+
+```{r warning=FALSE, fig.height=5}
+gmd = gm$disjoin(new.ranges)
+dim(gm)
+dim(gmd)
+```
+
+Note that `length(gmd$gr)` `>= ``length(new.ranges)` since disjoining may create additional intervals by combining the existing `gm$gr` end points with the new.ranges. It also will not change any data values (it will copy  he old values into the new subdivided bins).
+
+Alternatively, we may want to refactor / reshape our `gMatrix` to a `GRanges`,
+which may require some aggregation.  For this we use the `$agg` method.  In this case, `length(gmd$gr)` == `length(mb.ranges)` and some aggregation / collapsing has occured. 
+
+```{r warning=FALSE, fig.height=5}
+mb.ranges = gr.tile(gm$footprint, 2e6)
+gma = gm$agg(mb.ranges)
+```
+
+To compare the aggregated `gma` vs original matrix `gmd` we can use
+gMatrix function `merge` to return a data.table
+with both matrices "aligned" to each other, and quickly plot their
+binwise correlation
+
+```{r warning=FALSE, fig.height=5}
+merge(gmd, gma)[sample(.N, 10000), plot(val1+1, val2+1, xlab = 'og', log = 'xy', ylab = 'rebinned')]
+```
+
+You can change default aggregation function to max
+(ie will make the output pixel value the max value of the input pixels)
+```{r warning=FALSE, fig.height=15}
+gma2 = gm$agg(mb.ranges, FUN = max)
+
+## visualize the different forms of aggregated data
+plot(c(gm$gtrack(name = 'og'), gma$gtrack(name = 'sum'), gma2$gtrack(name = 'max')), '1:1-1.5e8')
+```
+
+Tiles can be regularly or irregularly spaced.
+If the tiles input to $agg or gG overlap, we aggreagte
+over the overlaps (with `sum` as the default function)
+ie which can be used to perform a simple convolution or max pooling
+
+```{r warning=FALSE, fig.height=15}
+## we are using the standard GRanges padding operator "+"
+## with sum will do a convolution around each input mb.ranges
+gm.c = gm$agg(mb.ranges+1e6, FUN = sum)
+
+## "max pooling"
+gm.mp = gm$agg(mb.ranges+1e6, FUN = max)
+
+plot(c(gm$gtrack(name = 'og'), gm.c$gtrack(name = 'conv'), gm.mp$gtrack(name = 'max pool')), '1')
+```
+
+### Arithmetic ops and *de novo* instantiation
+
+You can also apply standard unary or binary arithmetic operations to gMatrix objects.  Below, we compute the ratio between every pixel in gg and the sum of it's 100kb neighborhood
+
+To get the neighborhood we just aggregate around padded GRanges of gg
+in general doing $agg or gMatrix instantiation around overlapping GRanges will
+result in aggregation of overlapping bins
+```{r warning=FALSE, fig.height=5}
+ggn = gm$agg(gm$gr+1e5)
+
+## to get the ratio we just divide (adding 0.001 to avoid divide by 0)
+ggr = gm /(ggn+0.001)
+```
+
+For those who love matrices and not data.tables you can easily output to a Matrix
+via the $mat active binding
+```{r warning=FALSE, fig.height=5}
+ggr$mat[1:10, 1:10]
+```
+
+We can build a second gMatrix representing log genomic distance (generated using gUtils function gr.dist) and instantiate it using the "vanilla" de novo `gMatrix` constructor function `gM`.
+```{r warning=FALSE, fig.height=5}
+## D is a length(gm$gr) by length(gm$gr) matrix
+D = log(gr.dist(gm$gr)+1)
+
+## below is the vanilla standard input to gM, the gMatrix instantiator
+gmd = gM(gm$gr, D)
+
+## instantiation from data.table with fields $i, $j, and $value also works
+dt = as.data.table(melt(D))[, .(i = Var1, j = Var2, value)][i<=j, ]
+gmd2 = gM(gm$gr, dt)
+
+## they should be equal.
+all(gmd == gmd2)
+```
+
+Alternate (sometimes convenient) way of defining a gMatrix is using
+an expression on i and j,  Since all the bins in `gm$gr` are on the same chromosome
+can use the below expression to compute a rough distance matrix.
+
+```{r warning=FALSE, fig.height=5}
+gmd = gM(gm$gr, abs(start(gm$gr)[i]-start(gm$gr)[j]))
+
+## transform by log to create log distance
+gmd = log(gmd+1)
+```
+
+## Modeling and prediction
+
+Below we define define a GLM model using an optional "bivariate" (see Introduction)
+to model a `gMatrix` of raw contact counts against a `gMatrix` of log distance.
+Please note that any named argument to gglm (outside of the standard a/rguments)
+is treated as a bivariate (in this case `distance=`).  You can check `?gglm` to see the standard arguments to this function. 
+
+```{r warning=FALSE, fig.height=5}
+## we subsample in nthe glm to limit the number of pixels / bin pairs
+## used in the Poisson glm fitting
+model = gglm(gm, distance = gmd, family = poisson, subsample = 1e5)
+```
+
+Apply the GLM model to predict contacts as a function of distance.
+```{r warning=FALSE, fig.height=5}
+gmp = gpredict(model, newdata = gm$gr, distance = gmd)
+```
+
+Merge observed and expected then create quick scatter
+plot to see some concordance of observed vs predicted contacts
+(applying this very simple model to very sparse data).
+
+```{r warning=FALSE, fig.height=5}
+merge(gm, gmp)[, plot(val1+1, val2+1, xlab = 'observed', ylab = 'expected', log = 'xy')]
+```
+
+# 3D Vignettes
+
+## Modeling AB contacts in HMEC
+
+The basic example above used data from a very sparse `.hic` file (ie only 40MB of data).  Let's now play with some real data from a limited chunk of genome.  This HMEC H3K27ac HiChIP data is stored in HiCPro .matrix format (which is a text file and .bed file pair).
+```{r warning=FALSE, fig.height=5}
+hicp.file = system.file('extdata', "hmec.matrix", package = "GxG")
+
+## these are HMEC contacts across chromosomes 1 and 2 in 500kb resolution
+gm = hicpro(hicp.file)
+```
+
+Let's model (ie predict) contacts as a function of distance and AB compartment state
+
+```{r warning=FALSE, fig.height=5}
+hmec.ab = rtracklayer::import(system.file('extdata', "hmec.bed", package = "GxG"))
+
+## each interval is named "A" or "B" based on A and B compartment
+hmec.ab$ab = hmec.ab$name
+```
+
+We can annotate GRanges of gm gMatrix with hmec.ab$ab using the
+$annotate method, which populates the intervals of gm$gr with metadata
+(aggregating if need be).
+
+```{r warning=FALSE, fig.height=5}
+gm$annotate(hmec.ab[, 'ab'])
+
+## Note: gm$gr is modified in place
+head(gm$gr)
+```
+
+Now that our `gMatrix` has metadata, we can do a brief aside to show some convenient subsetting features of `gMatrix`
+
+```{r warning=FALSE, fig.height=5}
+## subset on only 'A' to 'A' contacts 
+gm[ab == 'A', ab == 'A']
+```
+Ok back to work, we can create a `gMatrix` of genomic distance.
+
+```{r warning=FALSE, fig.height=5}
+## get log genomic distance
+D = log(gr.dist(gm$gr)+1)
+D[is.na(D)]= log(1e9) ## cap infinite distance
+gmd = gM(gm$gr, D)
+
+## take a peak at this log distance matrix
+plot(gmd$gtrack('log distance', clim = c(0, 20)), "1")
+```
+
+We train a glm on chromosome 2 of `gm`, specifying the A vs B compartment covariate by its gm$gr metadata field.  Any number of covariates can be specified in this way. 
+
+```{r warning=FALSE, fig.height=5}
+## train on chromosome 2 contacts, note that the bivariates and our data (gm.train)
+## have different dimensions but do not need to be aligned, that is done under the hood
+gm.train = gm[seqnames == 2, seqnames == 2]
+model = gglm(gm.train, covariates = c('ab'), distance = gmd, family = poisson)
+```
+
+We apply this model to predict contacts on chromosome 1. 
+
+```{r warning=FALSE, fig.height=5}
+## Similarly gmd and gr.test do not need to be "aligned"
+gm.test = gm[seqnames == 1, seqnames == 1]
+
+## note that the testing "data" only only requires bins that
+## have the covariates
+gmp = gpredict(model, newdata = gm.test$gr, distance = gmd)
+```
+
+Let's compare the data vs model prediction on chromosome 1.  The `clim` arguments put these both on same color scale.
+```{r warning=FALSE, fig.height=12}
+plot(c(gm.test$gtrack(name = 'data', clim = c(0, 630)), gmp$gtrack(name = 'model', clim = c(0, 630))), '1')
+```
+
+Merge observed vs predicted and generate scatter plot of data to
+assess model fit on chromosome 1.  The results show some deviation from this
+(very simple) model of interaction.
+
+```{r warning=FALSE, fig.height=5}
+merge(gm.test, gmp)[sample(.N, 10000), plot(val1+1, val2+1, log = 'xy')]
+```
+
+Though `gMatrix` natively implements basic functions for transforming
+data (e.g. log or arithmetic operations), we can use $transform to apply
+any arbitrary function to data.
+
+When applying these functions, we can also use other gMatrix objects as
+co-(named) arguments to $transform.   Again, these other arguments
+don't have to be the same dimension / binsize as the current object - 
+will be "coordinate aligned"  prior to evaluation.  In addition to `gMatrix`
+arguments, we can use other data types as arguments which will just
+just be fed "as is" to the function
+
+We can use `$transform` in this way to score the deviations from a model,
+i.e. identify "outlier pixels". To compute a P value from poisson model
+i.e. P(obs>=exp) via stats::ppois, we need to add the lower.tail P(obs>exp)
+to the density of P(obs ==exp).  This can be done very simply using a combination
+of $transform and standard `gMatrix` arithmetic ops. 
+
+```{r warning=FALSE, fig.height=5}
+gm.pval = gm.test$transform(ppois, lambda = gmp, lower.tail = TRUE) + gm.test$transform(
+dpois, lambda = gmp)
+```
+
+WE can use a similar expression to compute an FDR across all tested pixels / bin pairs.
+```{r warning=FALSE, fig.height=5}
+gm.fdr = gm.pval$transform(p.adjust, method = 'BH')
+```
+
+We plot these FDR outliers in log space.  These will show that our (simple) model is not doing a great job modeling long distance interactions.  Adding covariates and/or dealing with nonlinearities in the relationship between distance and contacts proability will improve the fit. 
+
+```{r warning=FALSE, fig.height=5}
+plot((-log(gm.fdr))$gtrack('-log10(FDR)'), '1')
+```
+
+
+## Simulation and inference of 3D features
+
+**GxG** allows modeling of genomic matrices (i.e. `gMatrix` objects) as well as pairwise genomic features (i.e. `gPair` objects).  The latter can be used to represent specific 3D genomic features (e.g. TADs, loops, stripes, and anchors) and simulate `gMatrix` data by adapting standard `R` `stats` packages. 
+
+### Simulating contacts
+
+We begin by generating some random intervals
+
+```{r warning=FALSE, fig.height=5}
+## define a GRanges in the genome)
+win = GRanges('1:1-1e6');
+
+## randomly sample some breakpoints
+set.seed(12)
+breaks = gr.sample(win, 10, 1)
+
+## define segments around those breakpoints
+segs = setdiff(win, breaks);
+```
+
+A `gPair` object is made from a `GRanges` or a pair of (equally sized) `GRanges`
+objects.  It can be instantiated via the `gP` constructor.
+
+`gPair` objects are vectorized and subsettable, where each item represents
+a pair of (strandless) `GRanges`
+
+```{r warning=FALSE, fig.height=5}
+## these two constructors are equivalent and represent self self pairings
+gp = gP(segs)
+gp = gP(segs, segs)
+
+## these permuted represent self non self pairings
+gpp = gP(segs, sample(segs))
+gpp[1:2]
+```
+
+Implicit in each gPair is a GRangesList accessible via $grl
+```{r warning=FALSE, fig.height=5}
+head(gpp$grl)
+```
+
+We can visualize these `gPair` objects using `gTrack` via the `$gt`
+active binding or the `$gtrack` method. 
+
+```{r warning=FALSE, fig.height=5}
+plot(c(gp$gtrack(name = 'og'), gpp$gtrack(name = 'permuted')), win)
+```
+
+We can instantiate a `gMatrix` from a `gPair`, where each `gPair` item represents a "contact" which is assigned a default weight of1
+```{r warning=FALSE, fig.height=5}
+gm = gM(gp)
+```
+
+We can modulate the weights assigned to each `gPair` by setting a metadata field
+during instantiation by `gP` and then using that field as a weight in the downsream
+`gM` call. 
+We e can use the $set method to set one or more metadata columns of gp
+```{r warning=FALSE, fig.height=8}
+## using
+gp$set(myfield = runif(length(gp)))
+
+## alternatively, via the gP instantiator
+gp = gP(segs, meta = data.table(myfield = runif(length(segs))))
+
+## then we define a gMatrix specifying the field "myfield" to use as a weight
+gm2 = gM(gp, field = 'myfield')
+
+plot(c(gm$gtrack(name = 'unweighted'), gm2$gtrack(name = 'weighted')), win)
+```
+
+Now that we have a gPair with metadata we can show off some of the
+useful subsetting syntax for gPair objects, which are vectorized.
+
+```{r warning=FALSE, fig.height=5}
+## will return first two gPairs
+gp[1:2]
+
+## will return all gPairs with myfield > 2
+gp[myfield>0.2]
+```
+
+To access metadata columns of `gp` use `$dt` to return the data.table.
+
+```{r warning=FALSE, fig.height=5}
+gp$dt$myfield
+```
+
+Now that we have introduced `gPair`, we can use them to build models of
+loops, loop and anchors, and stripes
+
+We can define loops as self-self `gPair` objects around the `GRanges` segs defined above
+and assign each pair a random weight
+```{r warning=FALSE, fig.height=5}
+loops = gP(segs)$set(type = 'loop', weight = 1)
+```
+
+We define anchors by creating gPairs a small padding on left and right hand
+sides of segs.
+```{r warning=FALSE, fig.height=5}
+pad = 1e4;
+
+## the below syntax uses gUtils binary ops %)% and %(% to
+## get the left and right hand sides of a set of intervals
+segr = segs %)% pad
+segl = segs %(% pad
+
+## stripes are gPairs that connect a loop side to the rest of the loop
+stripes.right = gP(segs, segr)$set(type = 'rstripe', weight = 3);
+stripes.left = gP(segs, segl)$set(type = 'lstripe', weight = 3);
+
+## anchors are gPairs that connect two loop sides 
+anchors = gP(segr, segl)$set(type = 'anchor', weight = 4)
+```
+
+We can concatenate `gPair` objects using the standard `c` operator.  In this
+case, we are concatenating all the loops, and taking a sample of the
+stripes and anchors.
+
+```{r warning=FALSE, fig.height=5}
+all = c(loops, sample(anchors, 4), sample(stripes.right, 5), sample(stripes.left,4))
+```
+
+We combine them into a gMatrix weighted by field "weight"
+
+```{r warning=FALSE, fig.height=7}
+gm = gM(all, field = 'weight')
+
+## take a peek at the resulting gMatrix and the input gPairs 
+plot(c(all$gtrack(name = 'gPairs', gr.colorfield = 'type'), gm$gt), win)
+```
+
+Using a binning of the window, we can now build a contact map from these inputs.
+
+```{r warning=FALSE, fig.height=7}
+bins = gr.tile(gm$gr, 5e3)
+
+## recast / disjoin the gm into a binned version 
+gmb = gm$disjoin(bins)
+```
+
+We can use GxG function grpois to sample Poisson distribution
+where gMatrix entries provide a pixel specific $\lambda_ij$ parameter.
+
+```{r warning=FALSE, fig.height=7}
+## sample data with mean 2*gmb
+gmbs = grpois(2*gmb)
+
+## plot the data
+plot(c(gmb$gtrack('lambda'), gmbs$gtrack('rpois(lambda)')), win)
+```
+
+### Inferring features
+
+Now let's say we had a background model of the data in `gmbs` that
+was only based on the loop structure, and we wanted to infer 
+anchors and stripes.
+
+We first make a "background" gMatrix of only loops, and use this
+to fit to `gmbs` as a "bivariate" in the GLM. 
+
+```{r warning=FALSE, fig.height=5}
+gmbg = gM(loops, field = 'weight')
+model = gglm(gmbs, covariates = c(), bg = gmbg, family = poisson)
+```
+
+Let's make our best prediction of the data given this "loop only" background
+model.
+
+```{r warning=FALSE, fig.height=5}
+gmbp = gpredict(model, gmbg$gr, bg = gmbg)
+```
+
+We now use ppois / dpois to evaluate the loss of the data relative to our model as
+the probability of seeing as many counts as we see or greater (i.e. a p value).
+
+i.e. applying poisson model whose $lambda_ij$ parameter is `gmbp`.
+
+To do this we score score the new data via ppois (using  $transform)
+vs the "expected" gmbp means. (Again, since we `lower.tail=TRUE` in `stats` gives P>obs need to add dpois of observed)
+
+```{r warning=FALSE, fig.height=5}
+gmbs.sig = gmbs$transform(ppois, lambda = gmbp, lower.tail = FALSE) + gmbs$transform(dpois, lambda = gmbp)
+```
+
+Transform again to get Benjamini Hochberg FDR.
+
+```{r warning=FALSE, fig.height=5}
+gmbs.fdr = -gmbs.sig$transform(p.adjust, method = 'BH')$transform(log10)
+```
+
+Using these results, we can plot our "truth" vs background covariate vs simulated data vs $-log_{10}(FDR)$.
+```{r warning=FALSE, fig.height=15}
+plot(c(gm$gtrack('truth'), gmbg$gtrack('bg', clim = c(0,2)), gmbs$gtrack('data'), gmbs.fdr$gtrack('-log_10 FDR', clim = c(0,5))), win)
+```
+
+To further characterize these "outliers", we can use the `$clusters` method, which uses community detection to extract clusters of pixels from a `gMatrix`.  These pixels are `gPair` objects and have the metadata field `cluster` populated.  This field can be used to subset and inspect them for further analysis and characterization. 
+
+In this analysis, we use the `$clusters` method to to extract pixels with high FDR. 
+```{r warning=FALSE, fig.height=10}
+clu = (gmbs.fdr>1)$clusters()
+```
+
+Clusters are numbered according to decreasing size / cardinality.
+We will plot a couple of these along with the data
+and see that they correspond to the stripes that we used to
+generate this simulated data
+
+```{r warning=FALSE, fig.height=10}
+clu1 = clu[cluster == 1]
+clu2 = clu[cluster == 2]
+
+plot(c(gmbs$gtrack('data'), clu1$gtrack('cl 1\ngP'), gM(clu1)$gtrack('cl1\ngM'), clu2$gtrack('cl 2\ngP'), gM(clu2)$gtrack('cl2\ngM')), win)
+```
+
+# Beyond 3D
+
+## From (barcoded) `.bam` to gMatrix 
+
+For the analysis of contact maps, **GxG** can easiliy plug in downstream of standard "heavy duty" 3D chromatin analysis pipelines (e.g. `Juicer`, `HicPro`).  These pipelines apply custom data filters to the sequence data (e.g. mapping quality, restriction site overlap) to identify high-quality contacts.  Though this may be adequate for many / most applications, we may want to go back to the alignment data for custom analyses, re-analysis, or vetting of significant signals.
+
+This is especially useful for the analysis of more recent "barcoded" alignment data, such as that from barcoded (e.g. 10X Chromium, SPRITE) or long reads (Nanopore, PacBio).  In these data, we may want to build custom "contact maps" from subsets of (quality-filtered reads) in order to detect multi-way interactions or complex phases of rearranged alleles. This can even be useful for the analysis of paired-end WGS patterns near SVs, as we show below. 
+
+This can be done inside **GxG** to build contact maps de novo from sequencing reads via the `cocount` function.  This function takes in any `GRanges` and uses its metadata (e.g. `qname`, `BX`) to group reads and build a contact map.  To leverage this, just use your favorite R package for extracting alignments from `.bam` files as `GRanges`.  We like `bamUtils`, though you can also use `Rsamtools` among other approaches. 
+
+
+Here are three windows of a structurally variant region in HCC1143, for which we have linked-read data. 
+
+```{r warning=FALSE, fig.height=5}
+We define these windows based on our prior knowledge
+wins = GRanges(c("chr21:17195919-17295919", "chr21:17995273-18101884", "chr21:19308495-19408495"))
+
+## The relevant tumor and normal bam slices are bundled with the package
+tbam = system.file('extdata', "tumor.bam", package = "GxG")
+nbam = system.file('extdata', "normal.bam", package = "GxG")
+```
+
+We load tumor and normal reads as GRanges via bamUtils tool read.bam.  This step can be replaced with
+your tool of choice for getting `GRanges` from bams  (e.g. `Rsamtools`, `samtools` plus `data.table` `fread`).
+
+```{r warning=FALSE, fig.height=5}
+## pairs.grl=FALSE just returns the reads as GRanges instead read pairs GRangesLists
+## we make sure to grab the "BX" tag from these files
+treads = read.bam(tbam, wins, tag = 'BX', pairs.grl = FALSE)
+nreads = read.bam(nbam, wins, tag = 'BX', pairs.grl = FALSE)
+```
+
+Let's choose a reasonable set of bins / tiles across these windows of interest (1Kbp)
+intervals. 
+
+```{r warning=FALSE, fig.height=5}
+tiles = gr.tile(wins, 1e3)
+```
+
+The `by=` argument in cocount is the curcial metadata field of the `GRanges` input
+which determines the grouping that we will use to count
+pairwise "contacts".  This grouping variable determines pairs or linked groups
+of ranges that we will use to populate the bins.
+
+For all ranges in that group, we will *increment all bin pairs intersected by that
+group by 1*. This will work for "pairwise" alignment annotations, (e.g. `QNAME`)
+that are used in Hi-C and WGS SV analysis, as well as multi-way
+annotations (e.g. `BX`) that are used in linked, barcoded, and long-reads.
+
+```{r warning=FALSE, fig.height=5}
+tgm = cocount(treads, tiles, by = 'BX')
+ngm = cocount(nreads, tiles, by = 'BX')
+```
+
+Indeed, in the contact map we can see that there is a complex rearrangement connecting windows 1 and 2, 2 and 3, and 1 and 3
+that is present only in the tumor and not the matched normal sample.
+
+```{r warning=FALSE, fig.height=12}
+plot(c(ngm$gtrack('normal'), tgm$gtrack('tumor')), wins)
+```
+
+Note that we can apply read level filtering at this step e.g. based on mapping quality
+to get "cleaner maps".  Here we use the `gUtils` operator `%Q%` which allows us to
+subset the `GRanges` on metadata.  This will let us see that the "off diagonal" signal is indeed coming
+from high mapping quality reads. 
+
+```{r warning=FALSE, fig.height=7}
+tgm = cocount(treads %Q% (mapq==60), tiles, by = 'BX')
+plot(c(tgm$gtrack('tumor')), wins)
+```
+
+To show the comparative "paired end" analysis, we can pretend that the BX barcodes don't exist, i.e. treat
+this data as standard WGS. To do so we use `by="qname"` which treats each read pair (defined by having identical
+value in the `$qname` field) as a "contact"
+
+```{r warning=FALSE, fig.height=5}
+tgm2 = cocount(treads, tiles, by = 'qname')
+ngm2 = cocount(nreads, tiles, by = 'qname')
+```
+
+Ignoring the barcodes results in the loss of the most of the "off diagonal" signal,
+(including the increased density of near diagonal contacts that result from the reference 
+long range (>20kbp) linked read fragments).
+
+It is hard to see, however, there is a tiny but intense focus of pixels representing the
+read support for two of the three SVs found int he linked reads.  This is highly focal because the
+read pairs only provide very local contiguity information (<1kb).
+```{r warning=FALSE, fig.height=5}
+plot(c(tgm$gtrack('BX'), tgm2$gtrack('QNAME')), wins)
+```
+
+To draw out this signal, we can aggregate / convolve using the tricks shown above
+in the tutorial (i.e. by creating a 1e4 padding around each pixels to amplify the signal).
+
+```{r warning=FALSE, fig.height=20}
+tgma2 = tgm2$agg(tiles+1e4)
+ngma2 = ngm2$agg(tiles+1e4)
+
+## replot our BX map with the tumor and normal QNAME maps
+plot(c(tgm$gtrack('BX'), tgma2$gtrack('QNAME Tumor'), ngma2$gtrack('QNAME Normal')), wins)
+```
+
+Clearly will see can see signs of `QNAME` / paired end support for the SV connecting
+window 1 to 2 and window 2 to 3, but nothing for the transitive (long range) connection
+between window 1 and 3, seen with the linked read analysis. 
+
+## Microhomeology 
+
+A unique application of `gMatrix` is to represent binned sequence hom(e)ology (aka microhom(e)ology)).
+Microm(e)ology represents the sequence distance between pairs of bins on the input sequences, which
+we encode as a `gMatrix`.
+
+The **GxG** function `homeology` leverages the `stringDist` functionality in the `Biostrings` R package
+to compute pairwise similarity between pairs of padded bins on the input sequences. The padding and stride
+can be set by the user, and can be tuned biological question that is being asked.
+
+The coordinates of the output are determined by the names of the input sequences, or (alternatively) if the the input
+is provided as a `GRanges` with metadata field `$seq`, then the results will be returned over these `GRanges`.
+
+```{r warning=FALSE, fig.height=20}
+## allows us to read in 2bit files
+library(rtracklayer)
+
+## small sequence file bundled with the GxG package
+genome = system.file('extdata', "test.2bit", package = "GxG")
+
+## define some intervals on the mitochondrial genomem
+wins = GRanges(c('chrM:3000', 'chrM:11500', 'chrM:15000'))+100
+
+## load those sequences as a DNAStringSet
+seq = rtracklayer::import(genome, which = wins)
+```
+
+In the homeology function, the `stride=` argument specifies the width of the bins
+in the outputted gMatrix and `stride + pad` determines the width of sequence pairs
+that are used to measure sequence hom(e)ology. Wider will result in the sequence homology
+being computed on overlapping sequences, though the output is returned as bins with
+width equal to the provided `stride`. For example, `stride=1` and `pad=0` would only measure identity between individual
+nucleotide positions.
+
+The output distance is (by default) computed as the Levenshtein distance between the strings.
+Alternative distances can be specified using the `method=` argument, which propagates to the
+`Biostrings::stringDist` function.  See `Biostring::stringDist` for further documentation and additional arguments.
+
+```{r warning=FALSE, fig.height=5}
+gm = homeology(seq, stride = 5, pad = 20)
+
+plot(gm$gt, gm$footprint)
+```
+
+Sometimes we may want to test homeology between sequences and their reverse complements.  In other words,
+we want each bin $ij$ to represent the sequence distance between sequence $s_i$ and $\bar{s}_j$ (where `\bar_s`
+represents the reverse complement of sequence $s$).
+
+To do this we set the flag `rc=TRUE`.
+
+```{r warning=FALSE, fig.height=5}
+gm = homeology(seq, stride = 5, pad = 20, rc = TRUE)
+
+plot(gm$gt, gm$footprint)
+```
+
+One useful optional argument includes "substitutionMatrix`, which allows specification of alternative
+distance matrices, such as those only penalizing transversions.  We define such a matrix below.
+
+```{r warning=FALSE, fig.height=5}
+smat = array(0, dim = rep(4,2), dimnames = rep(list(c('A', 'C', 'G', 'T')), 2))
+## only penalize transversions
+smat['G','C'] = smat['G','T'] = smat['A','C'] = smat['A','T'] = -1
+smat = smat+t(smat) # make symmetric
+smat
+```
+
+We recompute homeology according to this alternate substitution matrix.
+
+```{r warning=FALSE, fig.height=5}
+gmc = homeology(seq, stride = 5, pad = 20, method = 'substitutionMatrix', substitutionMatrix = smat)
+plot(gmc$gt, gmc$footprint)
+```
+
+If we want the coordinates of the `gMatrix` cast to the reference sequence intervals
+(i.e. from which these sequences originate), then 
+we can add the sequence data to the $seq metadata column the GRanges object
+and then feed that `GRanges` to the `homoeology` function
+
+```{r warning=FALSE, fig.height=5}
+wins$seq = seq
+
+## this gives the identical plot as above, except now the coordinates
+## are "lifted" onto the reference coordinates
+gm = homeology(wins, stride = 5, pad = 20)
+plot(gm$gt, gmc$footprint)
+```

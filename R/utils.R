@@ -16,3 +16,16 @@ alpha = function(col, alpha)
   names(out) = names(col)
   return(out)
 }
+
+#' @name dodo.call
+#' @title dodo.call
+#' @description
+#' do.call implemented using eval parse for those pesky (e.g. S4) case when do.call does not work
+dodo.call = function(FUN, args)
+{
+    if (!is.character(FUN))
+        FUN = substitute(FUN)
+    cmd = paste(FUN, '(', paste('args[[', 1:length(args), ']]', collapse = ','), ')', sep = '')
+    return(eval(parse(text = cmd)))
+}
+

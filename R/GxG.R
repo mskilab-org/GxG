@@ -945,8 +945,8 @@ gM = function(gr = NULL, dat = NULL, field = NULL, full = FALSE, fill = 0, agg.f
         ijdt = as.data.table(ij)[, .(i = row, j = col)]
         if (!lower.tri)
           ijdt = ijdt[i<=j, ] ## only take upper triangle
-        if (nrow(ijdt)<nrow(ij))
-          warning('Lower triangular values from input matrix were ignored, to include (and aggregate) lower triangle values please use lower.tri = TRUE')
+#        if (nrow(ijdt)<nrow(ij))
+ #         warning('Lower triangular values from input matrix were ignored, to include (and aggregate) lower triangle values please use lower.tri = TRUE')
         dat = cbind(ijdt, data.table(value = dat[ijdt[, cbind(i, j)]]))
       }
     }
@@ -1251,12 +1251,23 @@ cocount = function(events, bins = disjoin(events), by = names(values(events))[1]
 
   events$group = values(events)[[by]]
   tmp = gr2dt(events[, c("group")] %*% bins)
-  
+
+  if (nrow(tmp)>0)
+    tmp = tmp[!is.na(group), ]
+
+  if (!nrow(tmp))
+    {
+      if (length(bins)>0)
+        return(gM(bins))
+      else
+        return(gM())
+    }
+ 
   if (frac)
     tmp[, weight := width/sum(width), by = group]
   else
     tmp[, weight := 1, by = group]
-
+  
   tmp = tmp[, .(bid = subject.id, group = as.integer(factor(group)), weight)]
 
   ## sum weights inside bin pairs that share a group
