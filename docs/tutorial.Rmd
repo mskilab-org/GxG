@@ -37,7 +37,7 @@ h1{
   }
 
 h2{
-  font-size: 20pt;
+  font-size: 18pt;
   }
 
 h3{
@@ -49,9 +49,11 @@ h3{
 
 # Introduction
 
-The **GxG** package provides a flexible, queriable `R` interface to genome matrices (i.e. matrices of genomic ranges), such as those used to represent maps of 3D chromatin contacts or linked-read barcode sharing.  As we show below **GxG** can also be adapted to representing (as well as manipulating, refactoring, reshaping, analyzing) signals from other 2D/3D genomic data such as that from microhom(e)ology or representing intuitive 2D features such as binwise genomic distance.  
+The **GxG** package provides a flexible, queriable `R` interface to genome
+matrices (i.e. matrices of genomic ranges), such as those used to represent maps
+of 3D chromatin contacts or linked-read barcode sharing   As we show below,  **GxG** can also be adapted to representing (as well as manipulating, refactoring, reshaping, analyzing) signals from other 2D/3D genomic data such as that from microhom(e)ology or representing intuitive 2D features such as binwise genomic distance.  
 
-**GxG** is written in the `R6` object oriented standard and built around a powerful `GenomicRanges`, `data.table`, and `igraph` backend, and thus supports agile interaction with gMatrices exceeding 100K bins and 100M "pixels".  Because **gGnome** classes are written in R6, their methods, variables, and "active bindings" are referenced using the `$` symbol.  This includes methods that  (similar to other object oriented languages) enable the object to be modified "in place".  Please see [here](https://cran.r-project.org/web/packages/R6/vignettes/Introduction.html) for more details about the `R6` standard.
+**GxG** is written in the `R6` object oriented standard and built around a powerful `GenomicRanges`, `data.table`, and `igraph` backend, and thus supports agile interaction with gMatrices exceeding 100K bins and 100M "pixels".  Because **GxG** classes are written in R6, their methods, variables, and "active bindings" are referenced using the `$` symbol.  This includes methods that  (similar to other object oriented languages) enable the object to be modified "in place".  Please see [here](https://cran.r-project.org/web/packages/R6/vignettes/Introduction.html) for more details about the `R6` standard.
 
 Our key interest in developing **GxG** is to develop a framework to analyze the sorts of matrices (`gMatrix`) that arise in the whole genome analysis of chromatin interactions and whole genome cancer structural variation. This includes implementing basic arithmetic operations (subtraction, multiplication) and transformations of matrices as well as a platform to implement more involved analyses (e.g. generalized linear models, clustering).  The key "pain point" that **GxG** relieves is the ability to "align", compare, visualize, and manipulate matrices that have been defined on different sets of coordinates (e.g. different bin sizes, uneven bin sizes) and to extract pairwise features (aka `gPair` objects) which can represent pixels or other higher level features (e.g. loops, stripes, loop anchors, and TADs).  The goal of `GxG` is to create a platform upon which custom statistical analyses of chromatin and structural variation can be written. 
 
@@ -147,9 +149,9 @@ gm$dat[value == 0, ]
 ```
 We can subset a gMatrix either using integer indices into the $gr GRanges
 a GRanges, or an expression on the `$gr` metadata (including seqnames, start, end)
-which produces an index or logical vector that broadcasts to the $gr field
+which produces an index or logical vector that broadcasts to the $gr field.
 
-All contacts that connect with the first five ranges of gm$gr
+All contacts that connect with the first five ranges of gm$gr.
 ```{r warning=FALSE, fig.height=5}
 gm[1:5, ] 
 ```
@@ -175,7 +177,7 @@ gm[GRanges('1:1-1e7'), GRanges('2:1-1e7')]
 ```
 
 Using `drop = TRUE`syntax with a single index i will output a GRanges
-whose metadata field $value the "row" of values associated with i (aka "virtual 4C")
+whose metadata field $value the "row" of values associated with i (aka "virtual 4C").
 
 ```{r warning=FALSE, fig.height=5}
 gm[1, drop = TRUE]
@@ -216,14 +218,14 @@ gma = gm$agg(mb.ranges)
 To compare the aggregated `gma` vs original matrix `gmd` we can use
 gMatrix function `merge` to return a data.table
 with both matrices "aligned" to each other, and quickly plot their
-binwise correlation
+binwise correlation.
 
 ```{r warning=FALSE, fig.height=5}
 merge(gmd, gma)[sample(.N, 10000), plot(val1+1, val2+1, xlab = 'og', log = 'xy', ylab = 'rebinned')]
 ```
 
 You can change default aggregation function to max
-(ie will make the output pixel value the max value of the input pixels)
+(ie will make the output pixel value the max value of the input pixels).
 ```{r warning=FALSE, fig.height=15}
 gma2 = gm$agg(mb.ranges, FUN = max)
 
@@ -234,7 +236,7 @@ plot(c(gm$gtrack(name = 'og'), gma$gtrack(name = 'sum'), gma2$gtrack(name = 'max
 Tiles can be regularly or irregularly spaced.
 If the tiles input to $agg or gG overlap, we aggreagte
 over the overlaps (with `sum` as the default function)
-ie which can be used to perform a simple convolution or max pooling
+ie which can be used to perform a simple convolution or max pooling.
 
 ```{r warning=FALSE, fig.height=15}
 ## we are using the standard GRanges padding operator "+"
@@ -249,11 +251,11 @@ plot(c(gm$gtrack(name = 'og'), gm.c$gtrack(name = 'conv'), gm.mp$gtrack(name = '
 
 ### Arithmetic ops and *de novo* instantiation
 
-You can also apply standard unary or binary arithmetic operations to gMatrix objects.  Below, we compute the ratio between every pixel in gg and the sum of it's 100kb neighborhood
+You can also apply standard unary or binary arithmetic operations to gMatrix objects.  Below, we compute the ratio between every pixel in gg and the sum of it's 100kb neighborhood.
 
 To get the neighborhood we just aggregate around padded GRanges of gg
 in general doing $agg or gMatrix instantiation around overlapping GRanges will
-result in aggregation of overlapping bins
+result in aggregation of overlapping bins.
 ```{r warning=FALSE, fig.height=5}
 ggn = gm$agg(gm$gr+1e5)
 
@@ -412,7 +414,7 @@ co-(named) arguments to $transform.   Again, these other arguments
 don't have to be the same dimension / binsize as the current object - 
 will be "coordinate aligned"  prior to evaluation.  In addition to `gMatrix`
 arguments, we can use other data types as arguments which will just
-just be fed "as is" to the function
+just be fed "as is" to the function.
 
 We can use `$transform` in this way to score the deviations from a model,
 i.e. identify "outlier pixels". To compute a P value from poisson model
@@ -421,7 +423,7 @@ to the density of P(obs ==exp).  This can be done very simply using a combinatio
 of $transform and standard `gMatrix` arithmetic ops. 
 
 ```{r warning=FALSE, fig.height=5}
-gm.pval = gm.test$transform(ppois, lambda = gmp, lower.tail = TRUE) + gm.test$transform(
+gm.pval = gm.test$transform(ppois, lambda = gmp, lower.tail = FALSE) + gm.test$transform(
 dpois, lambda = gmp)
 ```
 
@@ -432,10 +434,9 @@ gm.fdr = gm.pval$transform(p.adjust, method = 'BH')
 
 We plot these FDR outliers in log space.  These will show that our (simple) model is not doing a great job modeling long distance interactions.  Adding covariates and/or dealing with nonlinearities in the relationship between distance and contacts proability will improve the fit. 
 
-```{r warning=FALSE, fig.height=5}
+```{r warning=FALSE, fig.height=9}
 plot((-log(gm.fdr))$gtrack('-log10(FDR)'), '1')
 ```
-
 
 ## Simulation and inference of 3D features
 
@@ -461,7 +462,7 @@ A `gPair` object is made from a `GRanges` or a pair of (equally sized) `GRanges`
 objects.  It can be instantiated via the `gP` constructor.
 
 `gPair` objects are vectorized and subsettable, where each item represents
-a pair of (strandless) `GRanges`
+a pair of (strandless) `GRanges`.
 
 ```{r warning=FALSE, fig.height=5}
 ## these two constructors are equivalent and represent self self pairings
@@ -473,7 +474,8 @@ gpp = gP(segs, sample(segs))
 gpp[1:2]
 ```
 
-Implicit in each gPair is a GRangesList accessible via $grl
+Implicit in each gPair is a GRangesList accessible via $grl.
+
 ```{r warning=FALSE, fig.height=5}
 head(gpp$grl)
 ```
@@ -493,7 +495,8 @@ gm = gM(gp)
 We can modulate the weights assigned to each `gPair` by setting a metadata field
 during instantiation by `gP` and then using that field as a weight in the downsream
 `gM` call. 
-We e can use the $set method to set one or more metadata columns of gp
+
+We can use the $set method to set one or more metadata columns of gp.
 ```{r warning=FALSE, fig.height=8}
 ## using
 gp$set(myfield = runif(length(gp)))
@@ -525,10 +528,11 @@ gp$dt$myfield
 ```
 
 Now that we have introduced `gPair`, we can use them to build models of
-loops, loop and anchors, and stripes
+loops, loop and anchors, and stripes.
 
 We can define loops as self-self `gPair` objects around the `GRanges` segs defined above
-and assign each pair a random weight
+and assign each pair a random weight.
+
 ```{r warning=FALSE, fig.height=5}
 loops = gP(segs)$set(type = 'loop', weight = 1)
 ```
@@ -615,7 +619,7 @@ the probability of seeing as many counts as we see or greater (i.e. a p value).
 i.e. applying poisson model whose $lambda_ij$ parameter is `gmbp`.
 
 To do this we score score the new data via ppois (using  $transform)
-vs the "expected" gmbp means. (Again, since we `lower.tail=TRUE` in `stats` gives P>obs need to add dpois of observed)
+vs the "expected" gmbp means. (Again, since we `lower.tail=TRUE` in `stats` gives P>obs need to add dpois of observed).
 
 ```{r warning=FALSE, fig.height=5}
 gmbs.sig = gmbs$transform(ppois, lambda = gmbp, lower.tail = FALSE) + gmbs$transform(dpois, lambda = gmbp)
@@ -647,7 +651,7 @@ and see that they correspond to the stripes that we used to
 generate this simulated data.
 
 
-```{r warning=FALSE, fig.height=5}
+```{r warning=FALSE, fig.height=15}
 clu1 = clu[cluster == 1]
 clu2 = clu[cluster == 2]
 
@@ -727,7 +731,7 @@ plot(c(tgm$gtrack('tumor')), wins)
 
 To show the comparative "paired end" analysis, we can pretend that the BX barcodes don't exist, i.e. treat
 this data as standard WGS. To do so we use `by="qname"` which treats each read pair (defined by having identical
-value in the `$qname` field) as a "contact"
+value in the `$qname` field) as a "contact".
 
 ```{r warning=FALSE, fig.height=5}
 tgm2 = cocount(treads, tiles, by = 'qname')
@@ -739,7 +743,7 @@ Ignoring the barcodes results in the loss of the most of the "off diagonal" sign
 long range (>20kbp) linked read fragments).
 
 It is hard to see, however, there is a tiny but intense focus of pixels representing the
-read support for two of the three SVs found int he linked reads.  This is highly focal because the
+read support for two of the three SVs found in the linked reads.  This is highly focal because the
 read pairs only provide very local contiguity information (<1kb).
 ```{r warning=FALSE, fig.height=12}
 plot(c(tgm$gtrack('BX'), tgm2$gtrack('QNAME')), wins)
@@ -753,7 +757,7 @@ tgma2 = tgm2$agg(tiles+1e4)
 ngma2 = ngm2$agg(tiles+1e4)
 
 ## replot our BX map with the tumor and normal QNAME maps
-plot(c(tgm$gtrack('BX'), tgma2$gtrack('QNAME Tumor'), ngma2$gtrack('QNAME Normal')), wins)
+plot(c(tgm$gtrack('BX Tumor'), tgma2$gtrack('QNAME Tumor'), ngma2$gtrack('QNAME Normal')), wins)
 ```
 
 Clearly will see can see signs of `QNAME` / paired end support for the SV connecting
@@ -771,7 +775,7 @@ to compute pairwise similarity between pairs of padded bins on the input sequenc
 can be set by the user, and can be tuned biological question that is being asked.
 
 The coordinates of the output are determined by the names of the input sequences, or (alternatively) if the the input
-is provided as a `GRanges` with metadata field `$seq`, then the results will be returned over these `GRanges`.
+is provided as a `GRanges` with metadata field `$seq`, then the results will be returned over these `GRanges.
 
 ```{r warning=FALSE, fig.height=20}
 ## Bioconductor string libraries
@@ -841,7 +845,7 @@ plot(gmc$gt, gmc$footprint)
 If we want the coordinates of the `gMatrix` cast to the reference sequence intervals
 (i.e. from which these sequences originate), then 
 we can add the sequence data to the $seq metadata column the GRanges object
-and then feed that `GRanges` to the `homoeology` function
+and then feed that `GRanges` to the `homoeology` function.
 
 ```{r warning=FALSE, fig.height=5}
 wins$seq = seq

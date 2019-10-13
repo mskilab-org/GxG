@@ -85,7 +85,7 @@ gMatrix = R6::R6Class("gMatrix",
                           {
                             if (!all(c('i', 'j', 'value') %in% colnames(dat)))
                             {
-                              stop('missing column values in data.table dat, either provide matrix or data.table with fields $i, $j, and $value')
+                              stop('missing column $value in data.table dat, either provide matrix or data.table with fields $i, $j, and $value')
                             }
 
                             if (any(dat$i>length(gr))| any(dat$j>length(gr)))
@@ -94,18 +94,23 @@ gMatrix = R6::R6Class("gMatrix",
                             }
                           } else
                           {
-                            if (!is.matrix(dat) | !is.array(dat))
-                              stop('dat must be either matrix, data.table, or data.frame')
+                            if (!is(dat, 'Matrix') & !is.matrix(dat) & !is.array(dat))
+                              stop('dat must be either Matrix, matrix, data.table, or data.frame')
 
                             if (!identical(length(gr), unique(dim(dat))))
                               stop('if dat is matrix it must be square with dimensions that are equal to length(gr)')
 
-                            dat = melt(dat)
+                            if (is(dat, 'Matrix'))
+                              dat = as.data.table(which(dat != private$pfill, arr.ind = TRUE))[, .(i = row, j = col)][, value := dat[cbind(i, j)]]
+                            else
+                              dat = melt(dat)
+
                             setnames(dat, c("i", "j", "value"))
+                            nr = nrow(dat)
                             if (!lower.tri)
-                              private$pdat = pdat[i<=j, ] ## only take upper triangle
-                            if (nrow(private$pdat<nrow(pdat)))
-                              warning('Lower triangular values from input matrix were ignored: when using matrix input please put all data values in diagonal and upper triangle or use lower.tri = TRUE')
+                              dat = dat[i<=j, ] ## only take upper triangle
+                            if (nrow(dat)<nr)
+                              warning('Lower triangular values from input matrix were ignored: when using matrix input please put all data values in diagonal and upper triangle or use lower.tri = TRUE')                            
                           }
 
                           dat = dat[, .(i = pmin(i, j), j = pmax(i, j), value)]
@@ -291,7 +296,7 @@ gMatrix = R6::R6Class("gMatrix",
                       #' @author Marcin Imielinski
                       clusters = function(mode = 'louvain', gpair = TRUE)
                       {
-                        G = graph.adjacency(self$mat)
+                        G = graph.adjacency(self$mat!=0)
 
                         if (mode %in% c("weak")){
                           membership = igraph::clusters(G, mode)$membership
@@ -430,34 +435,56 @@ gMatrix = R6::R6Class("gMatrix",
                       #' @name agg
                       #' @description
                       #' aggregates, ie collapses or refactors gr to the
-                      #' provided intervals, aggregating via agg.fun
-                      #' and dividing by the total "area" (ie doing a weighted
+                      #' provided intervals, aggregating via agg.fun.
+                      #' if weighted = TRUE, computes an area weighted area of each function
+                      #' i.e. sum_ij (w_i*w_j*FUN(value))
                       #' average), returns new gMatrix
-                      #' @param gmats gMatix or list of gMatrices
+                      #' @param gr GRanges
+                      #' @param weighted logical determining whether to compute a width weighted average
                       #' @author Marcin Imielinski                         
-                      agg = function(gr = NULL, FUN = private$pagg.fun)
+                      agg = function(gr = NULL, FUN = private$pagg.fun, weighted = FALSE)
                       {
                         if (is.null(gr))
                           return(invisible(self))
                         gr.new = gr
-                        ov = gr2dt(gr.new %*% private$pgr)
-                        wid = as.numeric(width(private$pgr))
-                        if (nrow(private$pdat)>0)
+
+                        pgr = private$pgr
+                        pdat = private$pdat
+
+                        if (weighted)
+                        {
+                          tmpself = self[gr, gr]+0
+                          pgr = tmpself$gr
+                          pdat = tmpself$dat
+                        }
+
+                        if (!inherits(gr, 'GRanges'))
+                          stop('input to $agg should be a GRanges')
+                        ov = gr2dt(gr.new %*% pgr)
+                        wid = as.numeric(width(pgr))
+                        if (nrow(private$pdat)>0 && nrow(ov)>0)
                           {
                             dt.tmp = merge(
-                              merge(private$pdat,
+                              merge(pdat,
                                     ov[, .(i = subject.id, inew = query.id)], by = 'i', allow.cartesian = TRUE),
                               ov[, .(j = subject.id, jnew = query.id)], by = 'j', allow.cartesian = TRUE)[inew<=jnew, ]
-                            dt.tmp[, area := wid[i]*wid[j]]
-                            dt.new = dt.tmp[, .(value = FUN(value*area, na.rm = private$pna.rm) /
-                                                  FUN(area, na.rm = private$pna.rm)),
-                                            by = .(i = inew, j = jnew)]
+                            if (weighted)
+                            {
+                              dt.tmp[, area := wid[i]*wid[j]]
+                              dt.new = dt.tmp[, .(value = FUN(value*area, na.rm = private$pna.rm) /
+                                                    FUN(area, na.rm = private$pna.rm)),
+                                              by = .(i = inew, j = jnew)]
+                            }
+                            else
+                              dt.new = dt.tmp[, .(value = FUN(value, na.rm = private$pna.rm)),
+                                              by = .(i = inew, j = jnew)]
                           }
                         else
-                          dt.new = private$pdat
+                          dt.new = pdat
 
-                        return(gMatrix$new(gr.new, dt.new, fill = self$fill, full = self$full,
-                                          agg.fun = self$agg.fun))
+                        gm = gMatrix$new(gr.new, dt.new, fill = self$fill, full = self$full,
+                                         agg.fun = self$agg.fun)
+                        return(gm)
 
                       },
 
@@ -469,7 +496,7 @@ gMatrix = R6::R6Class("gMatrix",
                       #' returns new gMatrix 
                       #' @param gmats gMatix or list of gMatrices
                       #' @author Marcin Imielinski                         
-                      merge = function(gmats = NULL, FUN = self$agg.fun)
+                      merge = function(gmats = NULL, FUN = self$agg.fun, simplify = FALSE, mc.cores = 1, verbose = FALSE)
                       {
                         if (is.null(gmats))
                           return(self)
@@ -479,25 +506,103 @@ gMatrix = R6::R6Class("gMatrix",
 
                         if (!all(sapply(gmats, function(x) class(x)[1])=='gMatrix'))
                           stop('gmats must be gMatrix or list of gMatrices')
-                        
-                        dts = rbindlist(lapply(1:length(gmats), function(x) gmats[[x]]$dat[, source := x]))
-                        grs = do.call(grbind, lapply(1:length(gmats), function(i) {gr = gmats[[i]]$gr; gr$source = i; gr$old = 1:length(gr); gr}))
-                        gr.new = disjoin(grs)
-                        grs$index = match(grs, gr.new)
-                        tmp.dt = data.table(index = grs$index, source = grs$source, old = grs$old)
-                        setkeyv(tmp.dt, c('source', 'old'))
-                        dts$i = tmp.dt[.(dts$source, dts$i), index]
-                        dts$j = tmp.dt[.(dts$source, dts$j), index]
-                        dt.new = dts[, .(value = FUN(value)), by = .(i, j)]
-                        dt.new[, id := 1:.N]
+
+                        if (simplify)
+                          gmats = mclapply(1:length(gmats), function(x)
+                          {
+                            if (verbose)
+                              message('Simplifying ', x)
+                            refresh(gmats[[x]])$simplify
+                          }, mc.cores = mc.cores)
                        
-                        return(gMatrix$new(grs, dt.new, fill = self$fill,
+                        dts = rbindlist(mclapply(1:length(gmats), function(x)
+                        {
+                          dat = gmats[[x]]$dat
+                          if (nrow(dat)>0)
+                            dat[, source := x]
+                          dat
+                        }, mc.cores = mc.cores), fill = TRUE)
+
+                        ## concatenate grs from input gMatrices
+                        grs = do.call(grbind, lapply(1:length(gmats), function(i) {gr = gmats[[i]]$gr; gr$source = i; gr$old = 1:length(gr); gr}))
+                        ## disjoin and match 
+                        gr.new = disjoin(grs)
+                        dt.final = NULL
+                        if (nrow(dts))
+                        {
+                          grs = grs %*% gr.new[, c()]
+                          ## map old x source --> new
+                          map.dt = data.table(index = grs$subject.id, source = grs$source, old = grs$old)
+                          
+                          
+                          ## also want to keep track of all "missing" ie source x index combos that don't have
+                          ## a corresponding value in old - i.e. left join of cartesian product of grs and source
+                          ## with map.dt
+                          other.dt = merge(as.data.table(
+                            expand.grid(index = 1:length(gr.new), source = 1:length(gmats))),
+                            map.dt, by = c('source', 'index'), allow.cartesian = TRUE, all.x = TRUE)[is.na(old), ]
+                          map.dt = rbind(map.dt, other.dt)
+                          setkeyv(map.dt, c('source', 'old'))
+                          
+                          ## count.grs 
+                          ngrs = sapply(gmats, length)
+                          fills = sapply(gmats, function(x) x$fill)
+                          
+                        ## we keep it "simple" if all fills are 0 and function is sum
+                        keep.it.simple = all(fills == 0) & identical(FUN, sum)
+
+                        ## first merge
+                        dt1 = merge(dts[, .(i,j, value, source)], map.dt,
+                                    by.x = c('i', 'source'), by.y = c('old', 'source'),
+                                    allow.cartesian = TRUE, all.y = !keep.it.simple)
+
+                        ## any NA in j represent right join rows that are in map.dt but missing in dts
+                        ## we fill these in with all possible j values
+                        if (!keep.it.simple)
+                        {
+                          dt1 = rbind(dt1[!is.na(j), ],
+                                      dt1[is.na(j), .(j = 1:ngrs[source], fill = fills[source]),
+                                          by = .(source, i, value, index)], fill = TRUE)
+                          if (any(!is.na(dt1$fill)))
+                            dt1[!is.na(fill), value := fill]
+                        }
+
+                        if (identical(FUN, sum)) ## can get rid of 0 val rows
+                          dt1 = dt1[value!=0, ]
+
+                          dt2 = merge(
+                            dt1,
+                            map.dt, all.y = !keep.it.simple, 
+                            by.x = c('j', 'source'), by.y = c('old', 'source'),
+                            allow.cartesian = TRUE)
+
+                          ## we do similar things for missing i in dt2
+                          if (!keep.it.simple)
+                          {
+                            if (any(is.na(dt2$i)))
+                              dt2 = rbind(dt2[!is.na(i), ],
+                                          dt2[is.na(i), .(i = 1:ngrs[source], fill = fills[source]),
+                                              by = .(source, j, value, index.x, index.y)], fill = TRUE)
+                            
+                            ## apply fill
+                            if (any(!is.na(dt2$fill)))
+                              dt2[!is.na(fill), value := fill]                                                       
+                          }
+
+                          ## if i == j merge will create duplicate pixels which can cause over-counting
+                          ## remove these
+                          dt2 = dt2[index.x <= index.y, ]                        
+                          dt2[, i := index.x]
+                          dt2[, j := index.y]
+
+                          dt.final = dt2[, .(value = FUN(value, na.rm = self$na.rm)), by = .(i, j)]
+                          dt.final[, id := 1:.N]
+                        }
+                        ret = gMatrix$new(gr.new, dt.final, fill = self$fill,
                                            full = self$full, agg.fun = self$agg.fun,
                                            na.rm = self$na.rm
-                                          ))
-                        ## private$pgr = tmp$gr
-                        ## private$pdat = tmp$dat
-                        ## return(invisible(self))
+                                          )
+                        return(ret)
                       },
 
                       #' @name subset
@@ -526,6 +631,7 @@ gMatrix = R6::R6Class("gMatrix",
                       
                         ikeep = gr.new$index[gr.new %^% gr1]
                         jkeep = gr.new$index[gr.new %^% gr2]
+                        gr.new$index = NULL
 
                         ## we want dt.new that either have ikeep jkeep
                         ## or jkeep ikeep combo (but not jkeep jkeep
@@ -533,7 +639,7 @@ gMatrix = R6::R6Class("gMatrix",
                         dt.new = dt.new[(i %in% ikeep & j %in% jkeep) |
                                (i %in% jkeep & j %in% ikeep), ]
                         
-                        return(gMatrix$new(gr.new[, c()], dt.new, full = self$full, na.rm = self$na.rm, agg.fun = self$agg.fun, fill = self$fill))
+                        return(gMatrix$new(gr.new, dt.new, full = self$full, na.rm = self$na.rm, agg.fun = self$agg.fun, fill = self$fill))
                       },
                       
                       #' @name gtrack
@@ -543,7 +649,7 @@ gMatrix = R6::R6Class("gMatrix",
                       #' @param clim length 2 vector color limits to which to assign the min and max color
                       #' @author Marcin Imielinski                         
                       gtrack = function(name = '', colormap = c('white', 'red', 'black'), 
-                                        clim = NA, cmap.min = NA, cmap.max = NA, quantile = 0.01, max.ranges = 5e4,
+                                        clim = NA, cmap.min = NA, cmap.max = NA, quantile = 0.01, max.ranges = 3e3,
                                         ...)
                       {
                         dat = private$pdat
@@ -554,10 +660,10 @@ gMatrix = R6::R6Class("gMatrix",
                           cmap.max = clim[2]
                         
                         if (is.na(cmap.min))
-                          cmap.min = pmin(self$fill, quantile(dat$value, pmin(quantile, 1-quantile)))
+                          cmap.min = pmin(self$fill, quantile(dat$value, pmin(quantile, 1-quantile), na.rm = TRUE))
 
                         if (is.na(cmap.max))
-                          cmap.max = pmin(max(setdiff(dat$value, Inf), na.rm = TRUE), pmax(self$fill, quantile(dat$value, pmax(1-quantile, quantile))))
+                          cmap.max = pmin(max(setdiff(dat$value, Inf), na.rm = TRUE), pmax(self$fill, quantile(dat[value>cmap.min, value], pmax(1-quantile, quantile), na.rm = TRUE)))
 
                         mdata = Matrix::sparseMatrix(dat$i, dat$j, x = dat$value,
                                                      dims = c(length(self$gr), length(self$gr)),
@@ -576,7 +682,7 @@ gMatrix = R6::R6Class("gMatrix",
                       #' structure
                       #'
                       #' @param reverse will look at valleys instead of peaks
-                      #' @return na.rm variable associated with this gMatrix object
+                      
                       #' @author Marcin Imielinski                         
                       peaks = function(reverse = FALSE, full = FALSE)
                       {
@@ -619,7 +725,6 @@ gMatrix = R6::R6Class("gMatrix",
                         private$pdat = tmp$dat
                         return(invisible(self))
                       },
-
 
                       #' @name hicpro
                       #' @description
@@ -837,6 +942,31 @@ gMatrix = R6::R6Class("gMatrix",
                         
                         return(out)
                       },
+
+                      #' @name simplify
+                      #' @description
+                      #' simplifies gMatrix by merging all reference adjacent intervals
+                      #' with identical value profiles 
+                      #' @author Marcin Imielinski                         
+                      simplify = function()
+                      {
+                        mat = self$mat
+                        ## symmetrify
+                        mat[which(lower.tri(mat))] = t(mat)[which(lower.tri(mat))]
+                        grdt = gr2dt(self$gr)[, grsig := as.integer(factor(apply(mat, 1, paste, collapse = ' ')))]
+                        grdt[, same := c(diff(grsig)==0, NA), by = seqnames]
+                        grdt[, run := label.runs(same), by = seqnames]
+                        grdt[, run := ifelse(is.na(run) & !is.na(shift(run)), shift(run), run)]
+                        grdt[, nruns := max(c(0L,run), na.rm = TRUE), by = seqnames]
+                        grdt[is.na(run), run := 1:.N + nruns, by = seqnames]
+                        grdt[, row := 1:.N]
+                        newgr = dt2gr(grdt[  , .(start = min(start), end = max(end), row = row[1]), by = .(seqnames, run)], seqlengths = seqlengths(self$gr))                        
+                        newmat = self$mat[newgr$row, newgr$row, drop = FALSE]
+                        newgm = gMatrix$new(newgr[, names(values(self$gr))], dat = newmat)
+                        private$pgr = newgm$gr
+                        private$pdat = newgm$dat
+                        return(invisible(self))
+                      },
                       
                       #' @name gr
                       #' @description
@@ -917,6 +1047,7 @@ gMatrix = R6::R6Class("gMatrix",
 #' 
 #' @param gr GRanges around which to build a gMatrix or gPair object to sum
 #' @param dat data.table of $i and $j indexing gr and field $value OR a vector valued expression involving terms i and j that will be applied to expand.grid
+#' @param outer character scalar field of gr that will be used to generate an "outer product" of gr with itself, which given vector x for numerics will make each gmatrix entry equal to x_i*x_j and for character vector or factor fields will make each vector equal to x_i == x_j
 #' @param field if gr is a gPair then field can be a character that specifies a gPair metadata numeric or integer metadata field that will be used as weights to sum the gPair objects
 #' @param full logical flag whether to explicitly "fill" missing entries in provided data.table (default = FALSE)
 #' @param fill value with which to fill missing values (default 0)
@@ -925,7 +1056,7 @@ gMatrix = R6::R6Class("gMatrix",
 #' @return A new gMatrix object
 #' @author Marcin Imielinski                         
 #' @export
-gM = function(gr = NULL, dat = NULL, field = NULL, full = FALSE, fill = 0, agg.fun = sum, na.rm = TRUE, lower.tri = FALSE)
+gM = function(gr = NULL, dat = NULL, outer = NULL, field = NULL, full = FALSE, fill = 0, agg.fun = sum, na.rm = TRUE, lower.tri = FALSE)
 {
   if (deparse(substitute(dat)) != "NULL")
   {
@@ -955,6 +1086,23 @@ gM = function(gr = NULL, dat = NULL, field = NULL, full = FALSE, fill = 0, agg.f
     {
       stop('dat argument is malformed, should either be data.table with fields $i, $j, and $value OR expression involving $i and $j that will be evaluated on the expanded grid of ij pairs')
     }
+  } else if (!is.null(outer)) ## generate dat corresponding outer product
+  {
+    if (!(outer %in% names(values(gr))))
+      stop('outer should be field of gr from which outer product will be computed')
+
+    dat = as.data.table(expand.grid(i = 1:length(gr), j = 1:length(gr)))[i <= j, ]
+
+    val = values(gr)[[outer]]
+    if (is.factor(val) | is.character(val))
+    {
+      dat[, value := sign(val[i] == val[j])]
+    }
+    else
+    {
+      dat[, value := val[i]*val[j]]
+    }
+    dat = dat[value!=fill, ]
   }
 
   return(gMatrix$new(gr, dat, field = field, full = full, fill = fill, agg.fun = agg.fun, na.rm = na.rm, lower.tri = lower.tri))
@@ -1813,7 +1961,7 @@ gm2dat = function(gm, covariates = NULL, interactions = TRUE, offset = NULL, fam
     ggmessage('populated glm data matrix')
   }
 
-  return(dat)
+  return(list(dat = dat, gr = gm$gr))
 }
 
 #' @name gglm
@@ -1833,20 +1981,25 @@ gm2dat = function(gm, covariates = NULL, interactions = TRUE, offset = NULL, fam
 #' @param covariates 1D covariate metadata fields (default names(values(data$gr)))
 #' @param interactions logical flag (default TRUE) whether to model interaction
 #' @param family family to use (default gaussian)
+#' @param nb logical flag whether to use glm.nb (FALSE)
+#' @param zinb logical flag whether to use zeroinfl negative binomial model (FALSE)
+#' @param zinp logical flag whether to use zeroinfl poisson model (FALSE)
 #' @param offset gMatrix to use as an offset variable (default NULL)
 #' @param subsample integer number of data points to subsample (default NULL)
 #' @param ... named arguments specifying gMatrix objects to use as "bivariates"
 #' @return model
 #' @author Marcin Imielinski                         
 #' @export
-gglm = function(data, covariates = NULL, interactions = TRUE, offset = NULL, family = gaussian, na.action = na.pass, subsample = NULL, 
+gglm = function(data, covariates = NULL, interactions = TRUE, offset = NULL,
+                nb = FALSE, zinb = FALSE, zinp = FALSE, 
+                family = gaussian, na.action = na.pass, subsample = NULL,
                 verbose = FALSE,
                 ...)
 {
   ## make data data.table from provided gMatrix object data
   dat = gm2dat(data, covariates = covariates, interactions = interactions, offset = offset,
                verbose = verbose,
-               ...)
+               ...)$dat
 
   .clean = function(x) gsub('\\W', "_", x)
 
@@ -1881,7 +2034,14 @@ gglm = function(data, covariates = NULL, interactions = TRUE, offset = NULL, fam
     dat = dat[sample(.N, subsample), ]
 
   setnames(dat, .clean(names(dat)))
-  model = glm(dat, formula = fm, family = family, na.action = na.action)
+  if (nb)
+    model = MASS::glm.nb(dat, formula = fm, na.action = na.action)
+  else if (zinb)
+    model = pscl::zeroinfl(dat, formula = fm, dist = 'negbin', na.action = na.action)
+  else if (zinp)
+    model = pscl::zeroinfl(dat, formula = fm, dist = 'poisson', na.action = na.action)
+  else
+    model = glm(dat, formula = fm, family = family, na.action = na.action)
 
   ## keep track of covariate names etc, will be useful for predict phase
   model$covariates = covariates
@@ -1939,14 +2099,15 @@ gpredict = function(gmodel, newdata, offset = NULL, type = 'response', terms = N
     bivariates = bivariates[gmodel$bivariates]
 
   ## formulate data matrix using provided gm
-  dat = gm2dat(newdata, covariates = covariates, interactions = interactions, offset = offset,
+  tmp = gm2dat(newdata, covariates = covariates, interactions = interactions, offset = offset,
                verbose = verbose,
                ...)
+  dat = tmp$dat
   .clean = function(x) gsub('\\W', "_", x)
   setnames(dat, .clean(names(dat)))
   val = predict(gmodel, dat, type = type, terms = terms, na.action = na.action)
   dat[, value := val]
-  return(gMatrix$new(newdata, dat, fill = fill, full = full, agg.fun = agg.fun, na.rm = na.rm))
+  return(gMatrix$new(tmp$gr, dat, fill = fill, full = full, agg.fun = agg.fun, na.rm = na.rm))
 }
 
 #' @name &.gMatrix
@@ -2081,6 +2242,85 @@ gpredict = function(gmodel, newdata, offset = NULL, type = 'response', terms = N
 }
 
 
+#' @name round.gMatrix
+#' @description
+#'
+#' Round matrix values
+#' 
+#' @param mat gMatrix object
+#' @return a new gMatrix object whose values are rounded
+#' @author Marcin Imielinski                         
+#' @export
+'round.gMatrix' = function(mat, digits = 0)
+{
+  mat = mat+0 ## make full
+  dat.new = mat$dat[, value := round(value, digits = digits)]
+  gr.new = mat$gr
+  
+  return(gMatrix$new(gr.new, dat.new, fill = mat$fill, full = mat$full, agg.fun = mat$agg.fun,
+                     na.rm = mat$na.rm))
+}
+
+
+#' @name signif.gMatrix
+#' @description
+#'
+#' Round matrix values to signif digits
+#' 
+#' @param mat gMatrix object
+#' @return a new gMatrix object whose values are rounded
+#' @author Marcin Imielinski                         
+#' @export
+'signif.gMatrix' = function(mat, digits = 6)
+{
+  mat = mat+0 ## make full
+  dat.new = mat$dat[, value := signif(value, digits = digits)]
+  gr.new = mat$gr
+  
+  return(gMatrix$new(gr.new, dat.new, fill = mat$fill, full = mat$full, agg.fun = mat$agg.fun,
+                     na.rm = mat$na.rm))
+}
+
+
+#' @name floor.gMatrix
+#' @description
+#'
+#' Round matrix values
+#' 
+#' @param mat gMatrix object
+#' @return a new gMatrix object whose values are rounded
+#' @author Marcin Imielinski                         
+#' @export
+'floor.gMatrix' = function(mat)
+{
+  mat = mat+0 ## make full
+  dat.new = mat$dat[, value := floor(value)]
+  gr.new = mat$gr
+  
+  return(gMatrix$new(gr.new, dat.new, fill = mat$fill, full = mat$full, agg.fun = mat$agg.fun,
+                     na.rm = mat$na.rm))
+}
+
+
+
+#' @name ceiling.gMatrix
+#' @description
+#'
+#' Round matrix values
+#' 
+#' @param mat gMatrix object
+#' @return a new gMatrix object whose values are rounded
+#' @author Marcin Imielinski                         
+#' @export
+'ceiling.gMatrix' = function(mat)
+{
+  mat = mat+0 ## make full
+  dat.new = mat$dat[, value := ceiling(value)]
+  gr.new = mat$gr
+  
+  return(gMatrix$new(gr.new, dat.new, fill = mat$fill, full = mat$full, agg.fun = mat$agg.fun,
+                     na.rm = mat$na.rm))
+}
 
 
 #' @name all.gMatrix
@@ -2110,6 +2350,35 @@ gpredict = function(gmodel, newdata, offset = NULL, type = 'response', terms = N
 {
   return(any(mat$value, na.rm = na.rm))
 }
+
+#' @name max.gMatrix
+#' @description
+#'
+#' Returns max value 
+#' 
+#' @param mat gMatrix object
+#' @return maximum value of gMatrix
+#' @author Marcin Imielinski                         
+#' @export
+'max.gMatrix' = function(mat, na.rm = mat$na.rm)
+{
+  return(max(mat$value, na.rm = na.rm))
+}
+
+#' @name min.gMatrix
+#' @description
+#'
+#' Returns min value 
+#' 
+#' @param mat gMatrix object
+#' @return maximum value of gMatrix
+#' @author Marcin Imielinski                         
+#' @export
+'min.gMatrix' = function(mat, na.rm = mat$na.rm)
+{
+  return(min(mat$value, na.rm = na.rm))
+}
+
 
 #' @name dim.gMatrix
 #' @description
