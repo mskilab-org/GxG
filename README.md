@@ -24,7 +24,7 @@ install.packages('devtools')
 ## allows dependencies that throw warnings to install
 Sys.setenv(R_REMOTES_NO_ERRORS_FROM_WARNINGS = TRUE)
 
-devtools::install_github('mskilab/GxG)
+devtools::install_github('mskilab/GxG')
 ```
 
 Documentation 
