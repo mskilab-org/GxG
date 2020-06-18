@@ -1386,7 +1386,7 @@ grpois = function(gr, lambda = NULL, full = FALSE, fill = 0, agg.fun = sum, na.r
 #' @param bins bins to count to, default is disjoin(events)
 #' @param frac whether to count fractional overlap of event with bin as 1 (frac == FALSE) or based on width
 #' @export
-cocount = function(events, bins = disjoin(events), by = names(values(events))[1], frac = FALSE, full = FALSE, fill = 0, na.rm = TRUE)
+cocount = function(events, bins = disjoin(events), by = names(values(events))[1], weight = NULL, frac = FALSE, full = FALSE, fill = 0, na.rm = TRUE)
 {
   if (length(events)==0)
     return(gM(gr = bins, full = full, fill = fill, agg.fun = agg.fun, na.rm = na.rm))
@@ -1398,7 +1398,10 @@ cocount = function(events, bins = disjoin(events), by = names(values(events))[1]
     stop('by must be a metadata column of events GRanges')
 
   events$group = values(events)[[by]]
-  tmp = gr2dt(events[, c("group")] %*% bins)
+  if (!is.null(weight))
+    tmp = gr2dt(events[, c("group", weight)] %*% bins)
+  else
+    tmp = gr2dt(events[, c("group")] %*% bins)
 
   if (nrow(tmp)>0)
     tmp = tmp[!is.na(group), ]
@@ -1410,8 +1413,12 @@ cocount = function(events, bins = disjoin(events), by = names(values(events))[1]
       else
         return(gM())
     }
- 
-  if (frac)
+
+  if (!is.null(weight))
+    {
+      tmp$weight = tmp[[weight]]
+    }
+  else if (frac)
     tmp[, weight := width/sum(width), by = group]
   else
     tmp[, weight := 1, by = group]
