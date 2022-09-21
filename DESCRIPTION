@@ -19,6 +19,8 @@ Depends:
     GenomicRanges (>= 1.32),
 LinkingTo: Rcpp
 Imports:
+    Matrix,
+    igraph,
     methods,
     R6,
     Rcpp,
@@ -26,10 +28,12 @@ Imports:
     rtracklayer(>= 1.38),
     RCurl,
     Rcpp,
-    stringr (>= 1.3)
+    stringr (>= 1.3),
+    parallel
 Suggests: 
   testthat (>= 2.0)
 License: GPL-3
 Encoding: UTF-8
 LazyData: true
-RoxygenNote: 7.1.0
+RoxygenNote: 7.2.1.9000
+
