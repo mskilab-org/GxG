@@ -19,6 +19,8 @@ Depends:
     GenomicRanges (>= 1.32),
 LinkingTo: Rcpp
 Imports:
+    Matrix,
+    igraph,
     methods,
     R6,
     Rcpp,
