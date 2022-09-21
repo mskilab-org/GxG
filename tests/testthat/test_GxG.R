@@ -2,11 +2,12 @@ library(gUtils)
 library(GxG)
 
 ## idk testing this is slightly beyond my pay grade
-GENOME = system.file("extdata", "human_g1k_v37.no.extra.chrom.sizes", package = "gUtils")
-if (nchar(GENOME) == 0) {
-    download.file("http://mskilab.com/gUtils/hg19/hg19.chrom.sizes", "~/hg19.chrom.sizes")
-    GENOME="~/hg19.chrom.sizes"
-}
+## GENOME = system.file("extdata", "human_g1k_v37.no.extra.chrom.sizes", package = "GxG")
+## if (nchar(GENOME) == 0) {
+##     download.file("http://mskilab.com/gUtils/hg19/hg19.chrom.sizes", "~/hg19.chrom.sizes")
+##     GENOME="~/hg19.chrom.sizes"
+## }
+GENOME="human_g1k_v37.no.extra.chrom.sizes"
 Sys.setenv(DEFAULT_GENOME = GENOME)
 
 test_that("test .hic", {
