@@ -147,28 +147,51 @@ straw = function(hic, gr = NULL, norm = "NONE", type = 'BP', res = 1e4, mc.cores
   n = length(gr)
   grs.pairs = chr2.pairs = chr1.pairs = NULL
   grs.singles = paste(grs, grs)
+  ## new new new
+  r1 = grs
+  r2 = grs
   chr1.singles = chr2.singles = as.character(seqnames(gr))
   if (n>1)
     {
       pairs = t(combn(n, 2)) ##pairs
       grs.pairs = paste(grs[pairs[,1]], grs[pairs[,2]])   ## combinations
       #' Tuesday, Nov 07, 2017 04:43:52 PM - Julie: adding as.character()
+      r1 = c(r1, grs[pairs[,1]])
+      r2 = c(r2, grs[pairs[,2]])
       chr1.pairs = as.character(seqnames(gr)[pairs[,1]])
       chr2.pairs = as.character(seqnames(gr)[pairs[,2]])
     }
-
   str = paste(norm, hic, c(grs.singles, grs.pairs), type, as.integer(res))
   chr1 = as.character(c(chr1.singles, chr1.pairs))
   chr2 = as.character(c(chr2.singles, chr2.pairs))
-  out = rbindlist(mcmapply(str = str, chr1 = chr1, chr2 = chr2,
-                           FUN = function(str, chr1, chr2)
+  ## use strawR
+  out = rbindlist(mcmapply(r1 = r1,
+                           r2 = r2,
+                           FUN = function(r1, r2)
                            {
                              dt = as.data.table(
-                               tryCatch(GxG:::straw_R(str),
-                                        error = function (e)
-                                          data.table()))
+                                       strawr::straw(norm = norm,
+                                                     unit = type,
+                                                     binsize = res,
+                                                     fname = hic,
+                                                     chr1loc = r1,
+                                                     chr2loc = r2))
+                             setnames(dt, c("start1", "start2", "counts"))
+                             dt[, chr1 := gsub("^([0-9XY]+):.*", "\\1", r1)]
+                             dt[, chr2 := gsub("^([0-9XY]+):.*", "\\1", r2)]
+                             dt[, end1 := start1 + res - 1]
+                             dt[, end2 := start2 + res - 1]
                              return(dt)
-                           }, SIMPLIFY = FALSE,  mc.cores = mc.cores), fill = TRUE)
+                           }, SIMPLIFY = FALSE,  mc.cores = mc.cores), fill = TRUE)  
+  ## out = rbindlist(mcmapply(str = str, chr1 = chr1, chr2 = chr2,
+  ##                          FUN = function(str, chr1, chr2)
+  ##                          {
+  ##                            dt = as.data.table(
+  ##                              tryCatch(GxG:::straw_R(str),
+  ##                                       error = function (e)
+  ##                                         data.table()))
+  ##                            return(dt)
+  ##                          }, SIMPLIFY = FALSE,  mc.cores = mc.cores), fill = TRUE)
   out = out[!is.na(counts), ]
   if (!nrow(out))
     stop('Query resulted in no output, please check .hic file or input coordinates')
@@ -184,6 +207,8 @@ straw = function(hic, gr = NULL, norm = "NONE", type = 'BP', res = 1e4, mc.cores
   out$j1 = gr.map[.(out$str2), ix]  
   out[, i := pmin(i1, j1)]
   out[, j := pmax(i1, j1)]
+  out=out[i > 0 & i <= length(gr.out) & j > 0 & j <= length(gr.out)]
+
   gm = gM(gr.out, out[, .(i, j, value = counts)])
   return(gm) 
 }

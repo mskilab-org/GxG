@@ -29,6 +29,7 @@
 #' @importFrom reshape2 melt
 #' @import gUtils
 #' @import gTrack
+#' @import strawr
 "_PACKAGE"
 
 
