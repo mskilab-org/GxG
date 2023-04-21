@@ -2052,18 +2052,11 @@ gglm = function(data,
   if (!is.null(subsample) && subsample<nrow(dat))
     dat = dat[sample(.N, subsample), ]
 
-  ## no diagnoal entries?
-  if (!diagonal)
+  if ("biv_distance" %in% names(dat))
   {
-      ## or maybe we want to discard zero distance bins?
-      if ("biv_distance" %in% names(dat))
-      {
-          ## dat = dat[biv_distance > 0]
-          dat = dat[biv_distance > 0]##i!=j]
-          dat[, biv_distance := log10(biv_distance)]
-      }
+      if (!diagonal) { dat = dat[biv_distance > 0] }
   }
-
+    
   setnames(dat, .clean(names(dat)))
   if (nb)
     model = MASS::glm.nb(dat, formula = fm, na.action = na.action)
