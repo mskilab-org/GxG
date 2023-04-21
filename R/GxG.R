@@ -1988,19 +1988,30 @@ gm2dat = function(gm, covariates = NULL, interactions = TRUE, offset = NULL, fam
 #' @param data gMatrix object whose value is to be modeled
 #' @param covariates 1D covariate metadata fields (default names(values(data$gr)))
 #' @param interactions logical flag (default TRUE) whether to model interaction
+#' @param offset gMatrix to use as an offset variable (default NULL)
 #' @param family family to use (default gaussian)
 #' @param nb logical flag whether to use glm.nb (FALSE)
 #' @param zinb logical flag whether to use zeroinfl negative binomial model (FALSE)
 #' @param zinp logical flag whether to use zeroinfl poisson model (FALSE)
-#' @param offset gMatrix to use as an offset variable (default NULL)
+#' @param na.action named input to glm
 #' @param subsample integer number of data points to subsample (default NULL)
+#' @param diagonal logical flag, keep zero distance entries? if FALSE drops zero distance and log transforms. default TURE
+#' @param verbose logical flag, set TRUE to print stuff (FALSE)
 #' @param ... named arguments specifying gMatrix objects to use as "bivariates"
 #' @return model
 #' @author Marcin Imielinski                         
 #' @export
-gglm = function(data, covariates = NULL, interactions = TRUE, offset = NULL,
-                nb = FALSE, zinb = FALSE, zinp = FALSE, 
-                family = gaussian, na.action = na.pass, subsample = NULL,
+gglm = function(data,
+                covariates = NULL,
+                interactions = TRUE,
+                offset = NULL,
+                family = gaussian,
+                nb = FALSE,
+                zinb = FALSE,
+                zinp = FALSE, 
+                na.action = na.pass,
+                subsample = NULL,
+                diagonal = TRUE,
                 verbose = FALSE,
                 ...)
 {
@@ -2040,6 +2051,18 @@ gglm = function(data, covariates = NULL, interactions = TRUE, offset = NULL,
   ## if subsample integer provided then will run on subset of data
   if (!is.null(subsample) && subsample<nrow(dat))
     dat = dat[sample(.N, subsample), ]
+
+  ## no diagnoal entries?
+  if (!diagonal)
+  {
+      ## or maybe we want to discard zero distance bins?
+      if ("biv_distance" %in% names(dat))
+      {
+          ## dat = dat[biv_distance > 0]
+          dat = dat[biv_distance > 0]##i!=j]
+          dat[, biv_distance := log10(biv_distance)]
+      }
+  }
 
   setnames(dat, .clean(names(dat)))
   if (nb)
