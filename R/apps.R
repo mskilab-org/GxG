@@ -525,7 +525,7 @@ homeology.wrapper <- function(junctions,
     saveRDS(res[[1]], paste(outdir, 'gMatrix.rds', sep = '/'))
   }
 
-  return(list(gMList = res[[1]], rawstat = rawstat))
+  return(list(gMList = res[[1]], rawstat = rawstat, stat = stat))
 }
 
 #' @name homeology.event
