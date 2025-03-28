@@ -15,7 +15,7 @@ homeology.event(
   anchor = TRUE,
   deanchor_gm = TRUE,
   mat = FALSE,
-  genome = "/gpfs/commons/home/khadi/DB/GATK/human_g1k_v37.fasta.2bit",
+  genome = "~/DB/GATK/human_g1k_v37.fasta.2bit",
   bidirected_search = TRUE,
   save_gm = TRUE
 )

@@ -10,7 +10,7 @@ homeology.wrapper(
   pad = 0,
   thresh = 0,
   stride = 0,
-  genome,
+  genome = "~/DB/GATK/human_g1k_v37.fasta.2bit",
   cores,
   flip = FALSE,
   bidirectional = TRUE,

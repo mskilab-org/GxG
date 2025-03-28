@@ -398,7 +398,7 @@ homeology.wrapper <- function(junctions,
                       pad = 0,
                       thresh = 0,
                       stride = 0,
-                      genome,
+                      genome = "~/DB/GATK/human_g1k_v37.fasta.2bit",
                       cores,
                       flip = FALSE,
                       bidirectional = TRUE,
@@ -559,7 +559,7 @@ homeology.event = function (event,
                 anchor = TRUE, 
                 deanchor_gm = TRUE,
                 mat = FALSE,
-                genome = "/gpfs/commons/home/khadi/DB/GATK/human_g1k_v37.fasta.2bit",
+                genome = "~/DB/GATK/human_g1k_v37.fasta.2bit",
                 bidirected_search = TRUE,
                 save_gm = TRUE)
 {
@@ -660,7 +660,6 @@ homeology.event = function (event,
   seq2 = ffTrack::get_seq(genome,
                           query.bp2)
 
-  #browser()
 
   ifun = function(i) {
     tryCatch({
