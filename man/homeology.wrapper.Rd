@@ -10,7 +10,7 @@ homeology.wrapper(
   pad = 0,
   thresh = 0,
   stride = 0,
-  genome = "~/DB/GATK/human_g1k_v37.fasta.2bit",
+  genome = "~/DB/GATK/human_g1k_v37.fasta",
   cores,
   flip = FALSE,
   bidirectional = TRUE,
@@ -30,7 +30,7 @@ homeology.wrapper(
 
 \item{stride}{distance in bases between consecutive bins in which we will be measuring homeology}
 
-\item{genome}{Path to .2bit or ffTrack .rds containing genome sequence}
+\item{genome}{Path to .fasta containing genome sequence}
 
 \item{cores}{How many cores to use}
 

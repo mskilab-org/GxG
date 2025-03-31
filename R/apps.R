@@ -384,7 +384,7 @@ except ImportError:
 #' @param pad number of bases of padding around each sequence position (bin) to use when computing homeology, i.e. we then will be comparing 1 + 2*pad -mer sequences for edit distance
 #' @param thresh string distance threshold for calling homeology in a bin
 #' @param stride distance in bases between consecutive bins in which we will be measuring homeology
-#' @param genome Path to .2bit or ffTrack .rds containing genome sequence
+#' @param genome Path to .fasta containing genome sequence
 #' @param cores How many cores to use
 #' @param flip if flip = FALSE, homeology search for -/- and +/+ junctions is done between a sequence and its reverse complement
 #' @param bidirectional adding padding on both sides of each breakpoint (TRUE) or only in the direction of the fused side (FALSE)
@@ -398,7 +398,7 @@ homeology.wrapper <- function(junctions,
                       pad = 0,
                       thresh = 0,
                       stride = 0,
-                      genome = "~/DB/GATK/human_g1k_v37.fasta.2bit",
+                      genome = "~/DB/GATK/human_g1k_v37.fasta",
                       cores,
                       flip = FALSE,
                       bidirectional = TRUE,
@@ -433,7 +433,8 @@ homeology.wrapper <- function(junctions,
 
   junctions = junctions[standardchr]
 
-  si = seqinfo(TwoBitFile(genome))
+  fa = Rsamtools::FaFile(genome)
+  si = seqinfo(fa)
 
   ll = gr.nochr(junctions$left)
   rr = gr.nochr(junctions$right)
@@ -452,8 +453,6 @@ homeology.wrapper <- function(junctions,
                       bp2 = gr.string(gr.nochr(junctions$right)))
 
   print(events)
-
-  #browser()
 
   cmd=sprintf("homeology.event(events, pad = ceiling(%s/2), thresh = %s, stride = %s, pad2 = %s, genome = '%s', mc.cores = %s, bidirected_search = %s, flip = %s, save_gm = %s)", width, thresh, stride, pad, genome, cores, bidirectional, flip, savegMatrix)
 
@@ -541,7 +540,7 @@ homeology.wrapper <- function(junctions,
 #' @param anchor if TRUE, anchor the junctions to the genome 
 #' @param deanchor_gm if TRUE, deanchor the gMatrix
 #' @param mat if TRUE, return the gMatrix as a matrix
-#' @param genome path to .2bit or ffTrack .rds containing genome sequence
+#' @param genome path to .fasta containing genome sequence
 #' @param bidirected_search if TRUE, add padding on both sides of each breakpoint, if FALSE, add padding only in the direction of the fused side
 #' @param save_gm if TRUE, save the gMatrix
 #'
@@ -559,7 +558,7 @@ homeology.event = function (event,
                 anchor = TRUE, 
                 deanchor_gm = TRUE,
                 mat = FALSE,
-                genome = "~/DB/GATK/human_g1k_v37.fasta.2bit",
+                genome = "~/DB/GATK/human_g1k_v37.fasta",
                 bidirected_search = TRUE,
                 save_gm = TRUE)
 {
@@ -655,9 +654,9 @@ homeology.event = function (event,
   event$query.bp1 = gr.string(query.bp1)
   event$query.bp2 = gr.string(query.bp2)
   
-  seq1 = ffTrack::get_seq(genome,
+  seq1 = Biostrings::getSeq(Rsamtools::FaFile(genome),
                           query.bp1)
-  seq2 = ffTrack::get_seq(genome,
+  seq2 = Biostrings::getSeq(Rsamtools::FaFile(genome),
                           query.bp2)
 
 

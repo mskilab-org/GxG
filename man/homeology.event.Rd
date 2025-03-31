@@ -15,7 +15,7 @@ homeology.event(
   anchor = TRUE,
   deanchor_gm = TRUE,
   mat = FALSE,
-  genome = "~/DB/GATK/human_g1k_v37.fasta.2bit",
+  genome = "~/DB/GATK/human_g1k_v37.fasta",
   bidirected_search = TRUE,
   save_gm = TRUE
 )
@@ -41,7 +41,7 @@ homeology.event(
 
 \item{mat}{if TRUE, return the gMatrix as a matrix}
 
-\item{genome}{path to .2bit or ffTrack .rds containing genome sequence}
+\item{genome}{path to .fasta containing genome sequence}
 
 \item{bidirected_search}{if TRUE, add padding on both sides of each breakpoint, if FALSE, add padding only in the direction of the fused side}
 
