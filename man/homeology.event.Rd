@@ -16,8 +16,7 @@ homeology.event(
   deanchor_gm = TRUE,
   mat = FALSE,
   genome = "~/DB/GATK/human_g1k_v37.fasta",
-  bidirected_search = TRUE,
-  save_gm = TRUE
+  bidirected_search = TRUE
 )
 }
 \arguments{
@@ -44,8 +43,6 @@ homeology.event(
 \item{genome}{path to .fasta containing genome sequence}
 
 \item{bidirected_search}{if TRUE, add padding on both sides of each breakpoint, if FALSE, add padding only in the direction of the fused side}
-
-\item{save_gm}{if TRUE, save the gMatrix}
 }
 \description{
 homeology.event

@@ -344,9 +344,9 @@ except ImportError:
   if (!is.null(gr))
   {
     gr.old = gr
+    end(gr) = pmax(end(gr), 1)
     gr = gr.fix(gr, sl, drop = TRUE) %>% gr.stripstrand
     ## more fixing
-    end(gr) = pmax(end(gr), 1)
     start(gr) = pmax(start(gr), 1)
     if (length(gr)<length(gr.old))
       warning("Some of the provided ranges had to be dropped / clipped to make compatible with the seqlengths of the .cool / .mcool file")
@@ -389,7 +389,7 @@ except ImportError:
 #' @param flip if flip = FALSE, homeology search for -/- and +/+ junctions is done between a sequence and its reverse complement
 #' @param bidirectional adding padding on both sides of each breakpoint (TRUE) or only in the direction of the fused side (FALSE)
 #' @param annotate annotate edges in gGraph object and save it in working directory
-#' @param savegMatrix save gMatrix object of edit distances
+#' @param save save intermediate files and gMatrix? (default = TRUE)
 #' @param outdir output directory 
 #'
 #' @export homeology.wrapper
@@ -403,7 +403,8 @@ homeology.wrapper <- function(junctions,
                       flip = FALSE,
                       bidirectional = TRUE,
                       annotate = TRUE,
-                      savegMatrix = TRUE,
+                      overwrite = FALSE,
+                      save = TRUE,
                       outdir = "./") {
 
   setDTthreads(1)
@@ -454,13 +455,15 @@ homeology.wrapper <- function(junctions,
 
   print(events)
 
-  cmd=sprintf("homeology.event(events, pad = ceiling(%s/2), thresh = %s, stride = %s, pad2 = %s, genome = '%s', mc.cores = %s, bidirected_search = %s, flip = %s, save_gm = %s)", width, thresh, stride, pad, genome, cores, bidirectional, flip, savegMatrix)
+  cmd=sprintf("homeology.event(events, pad = ceiling(%s/2), thresh = %s, stride = %s, pad2 = %s, genome = '%s', mc.cores = %s, bidirected_search = %s, flip = %s)", width, thresh, stride, pad, genome, cores, bidirectional, flip)
 
-  if (!file.exists(paste0(outdir, "/res.rds"))) {
+  if (!file.exists(paste0(outdir, "/res.rds")) | overwrite) {
     message("running ", cmd)
     res = et(cmd)
     message("finished querying for homeology, saving as intermediate")
-    saveRDS(res, paste0(outdir, "/res.rds"), compress = FALSE)
+    if(save){
+      saveRDS(res, paste0(outdir, "/res.rds"), compress = FALSE)
+    }
   } else {
     message("results already exist...")
     message("reading in to perform post-processing")
@@ -477,7 +480,7 @@ homeology.wrapper <- function(junctions,
   keep = which(sapply(stat, class) %in% c('character', 'integer', 'numeric', 'factor', 'logical'))
   stat = stat[, keep, with = FALSE]
 
-  if (annotate) {
+  if (save & annotate) {
     message("annotating gGraph edges with homeology features")
     added_cols = c("numfeat", "numfeat2", "numfeat5",
                    "maxfeat", "numfeat10", "numlines5",
@@ -496,10 +499,13 @@ homeology.wrapper <- function(junctions,
     saveRDS(gg, paste0(outdir, "/marked_gGraph.rds"))
   }
 
-  message("Saving junction-level stats")
-  fwrite(stat, paste(outdir, 'junctions.txt', sep = '/'), sep = '\t')
-  saveRDS(stat, paste(outdir, 'junctions.rds', sep = '/'))
 
+  if(save){
+    message("Saving junction-level stats")
+    fwrite(stat, paste(outdir, 'junctions.txt', sep = '/'), sep = '\t')
+    saveRDS(stat, paste(outdir, 'junctions.rds', sep = '/'))
+  }
+  
   rawstat = res[[2]]
 
   if (!inherits(rawstat, "data.table")) setDT(rawstat)
@@ -514,12 +520,10 @@ homeology.wrapper <- function(junctions,
     rawstat = merge(rawstat, stat[, .(seq, edge.id)], by = "seq")
   }
 
-  message("Saving junction feature-level stats")
-  fwrite(rawstat, paste(outdir, 'rawstats.txt', sep = "/"), sep = '\t')
-
-  saveRDS(rawstat, paste(outdir, 'rawstats.rds', sep = '/'))
-
-  if (savegMatrix) {
+  if(save){
+    message("Saving junction feature-level stats")
+    fwrite(rawstat, paste(outdir, 'rawstats.txt', sep = "/"), sep = '\t')
+    saveRDS(rawstat, paste(outdir, 'rawstats.rds', sep = '/'))
     message("Saving gMatrix")
     saveRDS(res[[1]], paste(outdir, 'gMatrix.rds', sep = '/'))
   }
@@ -542,7 +546,6 @@ homeology.wrapper <- function(junctions,
 #' @param mat if TRUE, return the gMatrix as a matrix
 #' @param genome path to .fasta containing genome sequence
 #' @param bidirected_search if TRUE, add padding on both sides of each breakpoint, if FALSE, add padding only in the direction of the fused side
-#' @param save_gm if TRUE, save the gMatrix
 #'
 #' @return
 #' @export homeology.event
@@ -559,8 +562,7 @@ homeology.event = function (event,
                 deanchor_gm = TRUE,
                 mat = FALSE,
                 genome = "~/DB/GATK/human_g1k_v37.fasta",
-                bidirected_search = TRUE,
-                save_gm = TRUE)
+                bidirected_search = TRUE)
 {
   if (!NROW(event)) {
     return(list(gm = list(), rawres = data.table(), res = data.table()))
@@ -682,12 +684,9 @@ homeology.event = function (event,
 
   lst = mclapply(1:length(seq1), ifun, mc.cores = mc.cores)
   lst = purrr::transpose(lst)
-
   rawres = merge.data.table(event[, seq := seq_len(.N)], as.data.table(rbindlist(lst[[2]], fill = T)), by = "seq", all.x = TRUE)
-  res = cbind(event, rbindlist(lst[[3]], fill = TRUE))
 
-  if (save_gm)
-    return(list(gm = lst[[1]], rawres = rawres, res = res))
-  else
-    return(list(gm = NULL, rawres = rawres, res = res))
+  res = cbind(event, rbindlist(lst[[3]], fill = TRUE))
+  
+  return(list(gm = lst[[1]], rawres = rawres, res = res))
 }

@@ -15,7 +15,8 @@ homeology.wrapper(
   flip = FALSE,
   bidirectional = TRUE,
   annotate = TRUE,
-  savegMatrix = TRUE,
+  overwrite = FALSE,
+  save = TRUE,
   outdir = "./"
 )
 }
@@ -40,7 +41,7 @@ homeology.wrapper(
 
 \item{annotate}{annotate edges in gGraph object and save it in working directory}
 
-\item{savegMatrix}{save gMatrix object of edit distances}
+\item{save}{save intermediate files and gMatrix? (default = TRUE)}
 
 \item{outdir}{output directory}
 }
