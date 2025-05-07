@@ -700,7 +700,7 @@ homeology.event = function (event,
 predict.annealing <- function(
     seqcoords,
     fasta = "/gpfs/home/rafaij01/DB/references/hg19/human_g1k_v37_decoy.fasta",
-    type = "homology"
+    type = "homology",
     width = 1,
     cores = 20,
     genome = "hg19"
