@@ -1,4 +1,3 @@
-
 ## ================== Custom instantiators and converters for gMatrix ================== ##
 
 #' @name homeology
@@ -373,7 +372,7 @@ except ImportError:
   dat = data.table(i = res[[1]]+1, j = res[[2]]+1, value = res[[field]])[, .(i = pmin(i, j), j = pmax(i, j), value = value)]
 
   gm = gM(bins, dat = dat)
-  return(gm)
+  return(gM(bins, dat = dat))
 }
 
 
@@ -391,7 +390,7 @@ except ImportError:
 #' @param annotate annotate edges in gGraph object and save it in working directory
 #' @param save save intermediate files and gMatrix? (default = TRUE)
 #' @param outdir output directory 
-#'
+#'w
 #' @export homeology.wrapper
 homeology.wrapper <- function(junctions,
                       width = 50,
@@ -664,7 +663,7 @@ homeology.event = function (event,
 
   ifun = function(i) {
     tryCatch({
-      message(i)
+      message(paste0("Processing ALT junction #", i))
       this.env = environment()
       if (!anchor)
         win = c(evbp1[i], evbp2[i]) + pad
@@ -682,7 +681,7 @@ homeology.event = function (event,
     }, error = function(e) printerr(i))
   }
 
-  lst = mclapply(1:length(seq1), ifun, mc.cores = mc.cores)
+  lst = mclapply(1:length(seq1), ifun, mc.cores = mc.cores, mc.preschedule = FALSE)
   lst = purrr::transpose(lst)
   rawres = merge.data.table(event[, seq := seq_len(.N)], as.data.table(rbindlist(lst[[2]], fill = T)), by = "seq", all.x = TRUE)
 
@@ -690,3 +689,369 @@ homeology.event = function (event,
   
   return(list(gm = lst[[1]], rawres = rawres, res = res))
 }
+
+############################################################################
+# homologous/homeologous base pair attribution between loci i,j
+
+
+
+
+#' @param type type of homology to search for, either "homology" or "homeology"
+predict.annealing <- function(
+    seqcoords,
+    fasta = "/gpfs/home/rafaij01/DB/references/hg19/human_g1k_v37_decoy.fasta",
+    type = "homology"
+    width = 1,
+    cores = 20,
+    genome = "hg19"
+  ) {
+
+  fasta = khtools::readinfasta(fasta)
+
+  tiles <- gr.tile(seqcoords, width = width)
+
+  comb    <- combn(1:length(tiles), 2)
+  n_pairs <- ncol(comb)
+  i_idx <- comb[1, ]
+  j_idx <- comb[2, ]
+  
+  deletion_gr_all <- GRanges(
+    seqnames = seqnames(tiles)[i_idx],
+    ranges = IRanges(start = start(tiles)[i_idx], end = end(tiles)[j_idx]),
+    strand = strand(tiles)[i_idx]
+  ) %>% gr.nochr
+
+  if(grepl("homo", type)){
+    bp_attribution <- find_homology.gr(deletion_gr,
+      fasta,
+      debug = FALSE,
+      left = TRUE,
+      right = TRUE,
+    )  
+  } else if (grepl("homeo", type)) {
+    bp_attribution <- find_homeology.gr(deletion_gr_all,
+      fasta,
+      left = TRUE,
+      right = TRUE
+    )
+  } else {
+    stop("type must be either 'homology' or 'homeology'")
+  }
+  
+  left_scores  <- bp_attribution$left
+  right_scores <- bp_attribution$right
+  
+  tile_ids <- tiles$tile.id
+  dt <- mclapply(seq_len(n_pairs), function(k) {
+    i_val <- comb[1, k]
+    j_val <- comb[2, k]
+    return(
+      data.table(
+        i = tile_ids[i_val],
+        j = tile_ids[j_val], 
+        value = left_scores[k] + right_scores[k]
+      )
+    )
+  }, mc.cores = 20) %>%
+    rbindlist()
+  gm <- gM(
+    gr = tiles,
+    dat = dt
+  )
+
+  return(gM)
+}
+
+
+
+
+#### HELPER FUNCTIONS FOR hom/homeo bp predictions ####
+find_homology.gr <- function(gr, genome, debug = FALSE, left = TRUE, right = TRUE,
+         mc.cores = 1, junction = FALSE) {
+
+  chrom_lengths <- width(genome)
+  names(chrom_lengths) <- names(genome)
+  
+  # Create a data.table with the needed columns extracted from 'gr'
+  dt <- data.table(
+  idx         = seq_along(gr),
+  chrom       = as.character(seqnames(gr)),
+  st          = start(gr),
+  en          = end(gr),
+  n_del       = width(gr),
+  left_match  = 0L,
+  right_match = 0L,
+  j_left      = 1L,   # left side iteration counter (starts at 1)
+  j_right     = 0L    # right side iteration counter (starts at 0)
+  )
+  
+  # Add chromosome lengths for each row (reuse the lookup from genome)
+  dt[, chrom_len := as.numeric(chrom_lengths[chrom])]
+  
+  # Instead of stopping for insufficient context, issue warnings
+  if (any(dt$st <= dt$n_del)) {
+  warning("Insufficient left context for some entries, looking to as many bases as possible")
+  }
+  if (any(dt$en + dt$n_del > dt$chrom_len)) {
+  warning("Insufficient right context for some entries, looking to as many bases as possible")
+  }
+  
+  iter <- 1
+  # Iterate until no updates occur for either side.
+  repeat {
+  if (debug) {
+    message("Iteration ", iter)
+    message("Current state of dt:")
+    print(dt)
+  }
+  
+  # --- Left Side Update ---
+  left_idx <- dt[!is.na(j_left) & j_left <= n_del & ((st - j_left) >= 1), which = TRUE]
+  if (length(left_idx) > 0) {
+    # Compute positions for the retained left and the corresponding deleted bases.
+    pos_left <- dt[left_idx, st - j_left]
+    pos_del  <- dt[left_idx, en - j_left + 1]
+    
+    ranges_left <- GRanges(seqnames = dt[left_idx, chrom],
+        ranges   = IRanges(start = pos_left, end = pos_left))
+    ranges_del  <- GRanges(seqnames = dt[left_idx, chrom],
+        ranges   = IRanges(start = pos_del, end = pos_del))
+    
+    base_left <- as.character(getSeq(genome, ranges_left))
+    base_del  <- as.character(getSeq(genome, ranges_del))
+    
+    is_match <- base_left == base_del
+    
+    if (debug) {
+    message("Left update for indices: ", paste(left_idx, collapse = ", "))
+    message("  pos_left: ", paste(pos_left, collapse = ", "))
+    message("  pos_del : ", paste(pos_del, collapse = ", "))
+    message("  base_left: ", paste(base_left, collapse = ", "))
+    message("  base_del : ", paste(base_del, collapse = ", "))
+    message("  match result: ", paste(is_match, collapse = ", "))
+    }
+    
+    # For rows with matching bases, increment left_match and update j_left.
+    dt[left_idx, `:=`(
+    left_match = left_match + as.integer(is_match),
+    j_left = ifelse(is_match, j_left + 1L, NA_integer_)
+    )]
+  }
+  
+  # --- Right Side Update ---
+  right_idx <- dt[!is.na(j_right) & j_right < n_del & ((en + 1 + j_right) <= chrom_len), which = TRUE]
+  if (length(right_idx) > 0) {
+    # Compute positions for the retained right and the corresponding adjacent bases.
+    pos_right <- dt[right_idx, st + j_right]
+    pos_adj   <- dt[right_idx, en + 1 + j_right]
+    
+    ranges_right <- GRanges(seqnames = dt[right_idx, chrom],
+          ranges   = IRanges(start = pos_right, end = pos_right))
+    ranges_adj   <- GRanges(seqnames = dt[right_idx, chrom],
+          ranges   = IRanges(start = pos_adj, end = pos_adj))
+    
+    base_right <- as.character(getSeq(genome, ranges_right))
+    base_adj   <- as.character(getSeq(genome, ranges_adj))
+    
+    is_match <- base_right == base_adj
+    
+    if (debug) {
+    message("Right update for indices: ", paste(right_idx, collapse = ", "))
+    message("  pos_right: ", paste(pos_right, collapse = ", "))
+    message("  pos_adj  : ", paste(pos_adj, collapse = ", "))
+    message("  base_right: ", paste(base_right, collapse = ", "))
+    message("  base_adj  : ", paste(base_adj, collapse = ", "))
+    message("  match result: ", paste(is_match, collapse = ", "))
+    }
+    
+    dt[right_idx, `:=`(
+    right_match = right_match + as.integer(is_match),
+    j_right = ifelse(is_match, j_right + 1L, NA_integer_)
+    )]
+  }
+  
+  # If no rows were updated on either side, exit the loop.
+  if (length(left_idx) == 0 && length(right_idx) == 0) break
+  
+  iter <- iter + 1
+  }
+  
+  if (debug) {
+  message("Final state of dt:")
+  print(dt)
+  }
+  
+  # Assemble the return value depending on which directions are enabled.
+  if (left && right)
+  list(left = dt$left_match, right = dt$right_match)
+  else if (left)
+  dt$left_match
+  else
+  dt$right_match
+}
+
+
+find_homeology.gr <- function(
+  gr, 
+  genome, 
+  binWidth = 1,
+  thresh = 0.8, 
+  maxBases = 500,
+  verbose = FALSE, 
+  left = TRUE, 
+  right = TRUE, 
+  debug = FALSE
+  ) {
+  # tile input GRanges into bins of size binWidth
+  if (binWidth > 1) {
+    gr <- unlist(GenomicRanges::tile(gr, width = binWidth))
+  }
+  # Create a data.table that will hold per-entry tracking information.
+  dt <- data.table(
+    idx     = seq_along(gr),
+    chrom   = as.character(seqnames(gr)),
+    st      = start(gr),
+    n_del   = width(gr),
+    # Initialize counters for left (count.x) and right (count.y) sides.
+    count.x = rep(1L, length(gr)),
+    match.x = rep(0L, length(gr)),
+    max.x   = rep(0L, length(gr)),
+    count.y = rep(1L, length(gr)),
+    match.y = rep(0L, length(gr)),
+    max.y   = rep(0L, length(gr))
+  )
+  
+  # Fetch chromosome lengths from the genome.
+  chrom_lengths <- seqlengths(genome)
+  dt[, chrom_len := as.numeric(chrom_lengths[chrom])]
+  
+  # Calculate the maximum number of iterations possible for left and right sides.
+  # For the left, available bases = st - 1.
+  # For the right, available bases = chrom_len - (st + n_del - 1).
+  dt[, allowed_left := pmin(n_del, st - 1)]
+  dt[, allowed_right := pmin(n_del, chrom_len - (st + n_del - 1))]
+  
+  # Left side iteration:
+  # For left, the comparison is between positions:
+  #   pos1 = st - count.x
+  #   pos2 = st + n_del - count.x (which equals en - count.x + 1)
+  if (left) {
+    if (debug) message("Starting left side iterations")
+    # Limit the iteration to a maximum of 500 bases.
+    while (any(i_left <- which(dt$count.x < dt$allowed_left & dt$count.x < maxBases))) {
+      if (debug) message("Currently processing left indices: ", paste(i_left, collapse = ", "))
+      print(max(dt[, count.x]))
+      # Compute positions for current left comparison.
+      e1 <- dt$st[i_left] - dt$count.x[i_left]
+      e2 <- dt$st[i_left] + dt$n_del[i_left] - dt$count.x[i_left]
+      
+      # Get the bases from the genome using index lookup.
+      ranges1 <- GRanges(seqnames = dt$chrom[i_left],
+                         ranges = IRanges(start = e1, width = 1))
+      ranges2 <- GRanges(seqnames = dt$chrom[i_left],
+                         ranges = IRanges(start = e2, width = 1))
+      bases1 <- as.character(genome[ranges1])
+      bases2 <- as.character(genome[ranges2])
+      
+      # Update the match score.
+      m <- as.integer(bases1 == bases2)
+      dt[i_left, match.x := match.x + m]
+      
+      # Compute ratio after update.
+      ratio <- dt$match.x[i_left] / dt$count.x[i_left]
+      
+      if (debug) {
+        message("LEFT SIDE ITERATION:")
+        message("Indices: ", paste(i_left, collapse = ", "))
+        message("  count.x: ", paste(dt$count.x[i_left], collapse = ", "))
+        message("  Pos1 (st - count.x): ", paste(e1, collapse = ", "))
+        message("  Pos2 (st + n_del - count.x): ", paste(e2, collapse = ", "))
+        message("  Bases1: ", paste(bases1, collapse = ", "))
+        message("  Bases2: ", paste(bases2, collapse = ", "))
+        message("  Increment (m): ", paste(m, collapse = ", "))
+        message("  Total match.x after update: ", paste(dt$match.x[i_left], collapse = ", "))
+        message("  Ratio match/count: ", paste(round(ratio, 3), collapse = ", "))
+      }
+      
+      # Check threshold ratio.
+      idx_valid <- which(ratio >= thresh & bases1 == bases2)
+      if (length(idx_valid) > 0) {
+        if (debug) {
+          message("  THRESHOLD met for indices: ", paste(i_left[idx_valid], collapse = ", "),
+                  " with ratio: ", paste(round(ratio[idx_valid], 3), collapse = ", "))
+        }
+        # Save the current count as the best (maximum) extension for these indices.
+        dt[i_left[idx_valid], max.x := dt$count.x[i_left][idx_valid]]
+      }
+      
+      # Increment the left counter.
+      dt[i_left, count.x := count.x + 1L]
+      if (verbose) message("  Incremented count.x for indices: ", paste(i_left, collapse = ", "))
+  }
+    }
+  
+  # Right side iteration:
+  # For right, we compare positions:
+  #   pos1 = st + count.y - 1
+  #   pos2 = st + count.y + n_del - 1
+  if (right) {
+    if (debug) message("Starting right side iterations")
+    # Limit the iteration to a maximum of 500 bases.
+    while (any(i_right <- which(dt$count.y < dt$allowed_right & dt$count.y < maxBases))) {
+      print(max(dt[, count.y]))
+      if (debug) message("Currently processing right indices: ", paste(i_right, collapse = ", "))
+      e1 <- dt$st[i_right] + dt$count.y[i_right] - 1
+      e2 <- dt$st[i_right] + dt$count.y[i_right] + dt$n_del[i_right] - 1
+      
+      ranges1 <- GRanges(seqnames = dt$chrom[i_right],
+                         ranges = IRanges(start = e1, width = 1))
+      ranges2 <- GRanges(seqnames = dt$chrom[i_right],
+                         ranges = IRanges(start = e2, width = 1))
+      bases1 <- as.character(genome[ranges1])
+      bases2 <- as.character(genome[ranges2])
+      
+      m <- as.integer(bases1 == bases2)
+      dt[i_right, match.y := match.y + m]
+      
+      ratio <- dt$match.y[i_right] / dt$count.y[i_right]
+      
+      if (debug) {
+        message("RIGHT SIDE ITERATION:")
+        message("Indices: ", paste(i_right, collapse = ", "))
+        message("  count.y: ", paste(dt$count.y[i_right], collapse = ", "))
+        message("  Pos1 (st + count.y - 1): ", paste(e1, collapse = ", "))
+        message("  Pos2 (st + count.y + n_del - 1): ", paste(e2, collapse = ", "))
+        message("  Bases1: ", paste(bases1, collapse = ", "))
+        message("  Bases2: ", paste(bases2, collapse = ", "))
+        message("  Increment (m): ", paste(m, collapse = ", "))
+        message("  Total match.y after update: ", paste(dt$match.y[i_right], collapse = ", "))
+        message("  Ratio match/count: ", paste(round(ratio, 3), collapse = ", "))
+      }
+      
+      idx_valid <- which(ratio >= thresh & bases1 == bases2)
+      if (length(idx_valid) > 0) {
+        if (debug) {
+          message("  THRESHOLD met for indices: ", paste(i_right[idx_valid], collapse = ", "),
+                  " with ratio: ", paste(round(ratio[idx_valid], 3), collapse = ", "))
+        }
+        dt[i_right[idx_valid], max.y := dt$count.y[i_right][idx_valid]]
+      }
+      
+      dt[i_right, count.y := count.y + 1L]
+    }
+    if (verbose) message("  Incremented count.y for indices: ", paste(i_right, collapse = ", "))
+  }
+  
+  if (debug) {
+    message("Final state of data.table:")
+    print(dt)
+  }
+  
+  if (left && right) {
+    return(list(left = dt$max.x, right = dt$max.y))
+  } else if (left) {
+    return(dt$max.x)
+  } else {
+}
+    return(dt$max.y)
+  }
